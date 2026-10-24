@@ -7,8 +7,12 @@ session with a fixed capacity. Guests reserve a seat, join a waitlist when the
 session is full, and are promoted automatically when someone cancels. At the
 door, the host checks guests in from the roster.
 
-**Status:** scaffold. The implementation follows the 20-issue backlog in
-`_docs/backlog.md`.
+**Status:** scaffold complete. The 20-issue backlog is open in the
+[issue tracker](https://github.com/maxxqcty/openseat/issues); implementation
+starts with issue #1.
+
+- Repository: <https://github.com/maxxqcty/openseat>
+- Tracker: <https://github.com/maxxqcty/openseat/issues>
 
 ---
 
@@ -146,24 +150,22 @@ The work follows a PM → SWE → QA lifecycle, with each role in a fresh contex
 - Backlog: `_docs/backlog.md`
 - Issue sources: `_docs/issues/`
 
-## Publish the repository and issues
+## Repository and tracker
 
-The local repository has one commit. Authenticate the GitHub CLI, create the
-public repository, and open the backlog:
+- Public repository: <https://github.com/maxxqcty/openseat>
+- Issue tracker: <https://github.com/maxxqcty/openseat/issues>
+
+The repository was created with `gh repo create`, and all 20 issues were opened
+with `scripts/create_issues.py`. The script remains useful for a fork or for
+rebuilding the tracker:
 
 ```bash
-gh auth login
-gh repo create openseat --public --source=. --remote=origin --push
 python scripts/create_issues.py --dry-run
 python scripts/create_issues.py
 ```
 
-If `openseat` is already taken, choose a unique name such as
-`openseat-zoomcamp`. If the remote already exists, push with
-`git push -u origin main` and then run the issue script.
-
-The script creates the labels, creates all 20 issues in dependency order, adds
-dependency comments, and writes `.issue-map.json` (git-ignored).
+It creates the labels, creates the issues in dependency order, adds dependency
+comments, and writes `.issue-map.json` (git-ignored).
 
 ## Repository map
 
