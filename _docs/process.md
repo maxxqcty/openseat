@@ -42,8 +42,8 @@ sentence; the same misunderstanding caught after implementation costs a rewrite.
 | `in review` | SWE finished; QA is verifying | SWE |
 | `done` | QA passed; issue closed | Orchestrator |
 
-Use labels rather than inventing new states: `needs-grooming`, `in-progress`,
-`in-review`, `blocked`, plus the area labels.
+Use labels rather than inventing new states: `needs-grooming`, `groomed`,
+`in-progress`, `in-review`, `blocked`, plus the area labels.
 
 ## Session protocol
 

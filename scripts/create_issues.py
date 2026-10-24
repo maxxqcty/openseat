@@ -46,6 +46,7 @@ LABELS: dict[str, tuple[str, str]] = {
     "release": ("e11d48", "Final release and submission"),
     "integration": ("ec4899", "Frontend-to-backend integration"),
     "needs-grooming": ("eab308", "Not yet groomed by the PM"),
+    "groomed": ("22c55e", "Groomed and ready for implementation"),
     "in-progress": ("3b82f6", "Implementation in progress"),
     "in-review": ("a855f7", "Waiting for QA verification"),
     "blocked": ("dc2626", "Blocked on a decision or dependency"),
