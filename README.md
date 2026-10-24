@@ -145,12 +145,24 @@ The work follows a PM → SWE → QA lifecycle, with each role in a fresh contex
 - Backlog: `_docs/backlog.md`
 - Issue sources: `_docs/issues/`
 
-Create the GitHub issues after installing and authenticating `gh`:
+## Publish the repository and issues
+
+The local repository has one commit. Authenticate the GitHub CLI, create the
+public repository, and open the backlog:
 
 ```bash
+gh auth login
+gh repo create openseat --public --source=. --remote=origin --push
 python scripts/create_issues.py --dry-run
 python scripts/create_issues.py
 ```
+
+If `openseat` is already taken, choose a unique name such as
+`openseat-zoomcamp`. If the remote already exists, push with
+`git push -u origin main` and then run the issue script.
+
+The script creates the labels, creates all 20 issues in dependency order, adds
+dependency comments, and writes `.issue-map.json` (git-ignored).
 
 ## Repository map
 
