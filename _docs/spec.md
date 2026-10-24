@@ -286,8 +286,8 @@ Base path: `/api`. All responses are JSON. Errors use:
 Status codes: 400 malformed, 401 unauthenticated, 403 forbidden/CSRF, 404 not
 found or not visible, 409 conflict, 422 schema validation, 429 rate limit.
 
-The canonical contract lives in `openapi.yaml` at the repository root. See
-`_docs/architecture.md` for the drift policy.
+The canonical contract will live in `openapi.yaml` at the repository root once
+issue #10 lands. See `_docs/architecture.md` for the drift policy.
 
 ---
 

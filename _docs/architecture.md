@@ -1,5 +1,8 @@
 # Architecture
 
+> Target architecture. The code and the paths below land through the backlog in
+> `_docs/backlog.md`; this document is the contract they implement.
+
 ## Context
 
 OpenSeat is a single web application with a React frontend, a FastAPI backend,

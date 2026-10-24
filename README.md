@@ -133,7 +133,8 @@ Images are tagged `YYYYMMDD-HHMMSS-shortsha` and promoted, never rebuilt.
 OpenTelemetry resource attributes include `service.name`,
 `deployment.environment`, and `service.version`. The booking journey emits
 traces, metrics, and structured logs that share a trace ID. Dashboard and alert
-definitions live in `observability/`. The runbook is `_docs/runbook.md`.
+definitions will live in `observability/` (issues #17–#18). The runbook is
+`_docs/runbook.md`.
 
 ## How this project is built
 
@@ -165,6 +166,8 @@ The script creates the labels, creates all 20 issues in dependency order, adds
 dependency comments, and writes `.issue-map.json` (git-ignored).
 
 ## Repository map
+
+Target layout; directories appear as their issues land.
 
 ```text
 backend/            FastAPI app, domain services, tests

@@ -24,7 +24,7 @@ next working day.
 | `OpenSeatOverbooked` | `openseat_overbooked_sessions > 0` for 1m | page | Backend |
 
 Every alert must carry `owner`, `dashboard_url`, and `runbook_url` annotations.
-The source of truth is `observability/alerts.yaml`.
+The source of truth is `observability/alerts.yaml`, which lands in issue #18.
 
 ## OpenSeatDown
 
