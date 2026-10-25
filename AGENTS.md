@@ -5,8 +5,7 @@ OpenSeat is a booking and waitlist app for small workshops. Read
 
 ## Commands
 
-These targets are created by issue #1. If a target is missing, the bootstrap
-task has not landed yet.
+Run `make install` once, then use these targets from the repository root.
 
 ```bash
 make install     # backend + frontend dependencies
@@ -99,5 +98,6 @@ Read only what the task needs.
 
 ## Current stage
 
-Scaffold. The backlog is `_docs/backlog.md`; issues 1–20 are staged in
-`_docs/issues/` and can be created with `python scripts/create_issues.py`.
+Bootstrap in review. The backend, frontend, local dev runner, tests, lint, and
+CI skeleton are in place. The backlog is `_docs/backlog.md`; issues 1–20 are in
+the GitHub tracker. Feature work continues with issue #2.

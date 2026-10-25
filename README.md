@@ -2,14 +2,18 @@
 
 > Fill every seat, without overbooking.
 
+[![CI](https://github.com/maxxqcty/openseat/actions/workflows/ci.yml/badge.svg)](https://github.com/maxxqcty/openseat/actions/workflows/ci.yml)
+
 OpenSeat is a booking and waitlist app for small workshops. A host publishes a
 session with a fixed capacity. Guests reserve a seat, join a waitlist when the
 session is full, and are promoted automatically when someone cancels. At the
 door, the host checks guests in from the roster.
 
-**Status:** scaffold complete. The 20-issue backlog is open in the
-[issue tracker](https://github.com/maxxqcty/openseat/issues); implementation
-starts with issue #1.
+**Status:** bootstrap in review. The API and web shell run locally, and CI runs
+backend and frontend checks on every push and pull request. The 20-issue
+backlog is open in the
+[issue tracker](https://github.com/maxxqcty/openseat/issues); feature work
+continues with issue #2.
 
 - Repository: <https://github.com/maxxqcty/openseat>
 - Tracker: <https://github.com/maxxqcty/openseat/issues>
@@ -88,26 +92,33 @@ way.
 | Deploy | Fly.io (`openseat-dev`, `openseat-prod`), GHCR images |
 | Telemetry | OpenTelemetry → Grafana Cloud |
 
+## Prerequisites
+
+- Python 3.12 and [uv](https://docs.astral.sh/uv/)
+- Node.js 22+ and npm
+- GNU Make
+- Docker with Compose v2 (first used by issue #13)
+- `gh` for the issue workflow
+
 ## Local development
 
-Prerequisites: Python 3.12, [uv](https://docs.astral.sh/uv/), Node 22+, npm,
-make, Docker with Compose v2, and `gh` for the issue workflow.
-
 ```bash
-cp .env.example .env       # macOS / Linux
+cp .env.example .env         # macOS / Linux
 Copy-Item .env.example .env  # Windows PowerShell
+
 make install
 make dev
 ```
 
-These targets are created by issue #1; until it lands, the repository contains
-the specification and backlog only.
+`make install` runs `uv sync` in `backend/` and `npm ci` in `frontend/`.
+`make dev` starts both processes through `scripts/dev.py`; Ctrl+C stops both.
 
 - Frontend: http://localhost:5173
 - API: http://localhost:8091
+- Health: http://localhost:8091/healthz
 - API docs: http://localhost:8091/docs
 
-Full stack with Postgres:
+Full stack with Postgres (arrives with issue #13):
 
 ```bash
 docker compose up --build
@@ -116,12 +127,13 @@ docker compose up --build
 ## Tests
 
 ```bash
-make test   # backend unit, frontend unit, integration
-make e2e    # Playwright against docker-compose.yaml
-make lint
+make test   # backend unit + frontend unit
+make lint   # ruff, mypy, eslint, tsc --noEmit
+make fmt    # ruff and Prettier
 ```
 
-The test strategy is in `_docs/testing.md`.
+The test strategy is in `_docs/testing.md`. Playwright end-to-end tests arrive
+with issue #14.
 
 ## Deployment
 
