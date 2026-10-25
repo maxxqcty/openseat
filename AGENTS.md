@@ -98,6 +98,6 @@ Read only what the task needs.
 
 ## Current stage
 
-Bootstrap in review. The backend, frontend, local dev runner, tests, lint, and
+Bootstrap complete. The backend, frontend, local dev runner, tests, lint, and
 CI skeleton are in place. The backlog is `_docs/backlog.md`; issues 1–20 are in
 the GitHub tracker. Feature work continues with issue #2.

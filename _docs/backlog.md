@@ -1,8 +1,7 @@
 # Backlog
 
-Twenty issues, staged in `_docs/issues/` and ready to create on GitHub. Local
-numbers are the intended order; GitHub numbers may differ if the repository
-already has issues.
+Twenty issue sources in `_docs/issues/`, published to the GitHub tracker. Local
+numbers match the GitHub issue numbers in this repository.
 
 | # | Issue | Area | Depends on | Est. |
 | --- | --- | --- | --- | --- |
@@ -53,7 +52,8 @@ already has issues.
 | in review | QA is verifying |
 | done | QA passed and the issue is closed |
 
-All issues are **staged** until `python scripts/create_issues.py` runs.
+Issue 01 is **done**. Issues 02–20 are **open** in the GitHub tracker;
+grooming and implementation continue in dependency order.
 
 ## Creating the issues
 

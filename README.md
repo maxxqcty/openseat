@@ -9,7 +9,7 @@ session with a fixed capacity. Guests reserve a seat, join a waitlist when the
 session is full, and are promoted automatically when someone cancels. At the
 door, the host checks guests in from the roster.
 
-**Status:** bootstrap in review. The API and web shell run locally, and CI runs
+**Status:** bootstrap complete. The API and web shell run locally, and CI runs
 backend and frontend checks on every push and pull request. The 20-issue
 backlog is open in the
 [issue tracker](https://github.com/maxxqcty/openseat/issues); feature work
