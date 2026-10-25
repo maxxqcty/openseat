@@ -1,0 +1,1 @@
+"""OpenSeat backend package."""
