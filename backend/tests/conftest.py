@@ -41,6 +41,18 @@ def _database_available(url: str) -> bool:
 
 DATABASE_AVAILABLE = _database_available(TEST_DATABASE_URL)
 
+TABLES = ("bookings", "sessions", "users")
+
+
+def reset_database(database_url: str) -> None:
+    """Delete every application row so each test starts from a clean slate."""
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(f"TRUNCATE TABLE {', '.join(TABLES)} CASCADE"),
+        )
+    engine.dispose()
+
 
 requires_postgres = pytest.mark.skipif(
     not DATABASE_AVAILABLE,
@@ -80,10 +92,7 @@ def database_url() -> str:
 @pytest.fixture()
 def db_url(database_url: str) -> str:
     """Truncate all tables before each integration test."""
-    engine = create_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(text("TRUNCATE TABLE bookings, sessions, users CASCADE"))
-    engine.dispose()
+    reset_database(database_url)
     return database_url
 
 

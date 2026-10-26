@@ -124,6 +124,28 @@ Full stack with Postgres (arrives with issue #13):
 docker compose up --build
 ```
 
+## Demo data
+
+```bash
+make seed         # create the demo users, sessions, and bookings
+make seed-reset   # delete only the seeded rows, then recreate them
+```
+
+Seeded accounts use example.com addresses and placeholder names, and share the
+development password `openseat-dev-password`:
+
+| Account | Email |
+| --- | --- |
+| Host | `host@example.com` |
+| Guest A | `guest-a@example.com` |
+| Guest B | `guest-b@example.com` |
+
+Seeding is safe to run twice: it refreshes the same rows instead of duplicating
+them, and session start times are recomputed from the clock so the demo never
+goes stale. Seeding is development-only — `uv run python -m app.seed` refuses to
+run when `APP_ENV=production`, and nothing in the application calls it
+automatically.
+
 ## Tests
 
 ```bash
