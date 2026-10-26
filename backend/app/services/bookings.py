@@ -1,128 +1,105 @@
-"""Race-safe booking service with row-level locking and capacity enforcement.
-
-Constraints (from issue #6):
-- Use SELECT ... FOR UPDATE on the session row inside one transaction.
-- Never count seats outside the locked transaction.
-- Include checked_in in the occupied count from the start.
-- The invariant confirmed + checked_in <= capacity holds after every commit.
-- Return documented error shapes; no bare exception strings.
-"""
+"""Race-safe booking logic with capacity enforcement."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import uuid
+from datetime import datetime
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session as DbSession
 
-from app.config import get_db_session
-from app.models.sessions import Session as SessionModel
-from app.models.bookings import Booking
+from app.errors import ApiError
+from app.models.bookings import (
+    OCCUPIED_STATUSES,
+    STATUS_CONFIRMED,
+    STATUS_WAITLISTED,
+    Booking,
+)
+from app.models.sessions import STATUS_CANCELLED as SESSION_CANCELLED
+from app.models.sessions import Session
+from app.services.sessions import is_past, utc_now
 
-STATUS_CONFIRMED = "confirmed"
-STATUS_WAITLISTED = "waitlisted"
-STATUS_CANCELLED = "cancelled"
 
-ERROR_SESSION_NOT_FOUND = "Session not found"
-ERROR_SESSION_ENDED = "Cannot book an ended session"
-ERROR_BOOKING_CONFLICT = "Booking conflict: user already has an active booking"
+def status_for_occupancy(*, occupied: int, capacity: int) -> str:
+    """Return the booking status for a session with ``occupied`` seats taken."""
+    return STATUS_WAITLISTED if occupied >= capacity else STATUS_CONFIRMED
 
 
-def _count_occupied(db, session: SessionModel) -> int:
-    """Count confirmed + checked_in bookings for a session inside a locked transaction.
-
-    This must be called while the session row is locked via FOR UPDATE.
-    """
-    stmt = select(func.count(Booking.id)).where(
-        Booking.session_id == session.id,
-        Booking.status == STATUS_CONFIRMED,
+def count_occupied(db: DbSession, session_id: uuid.UUID) -> int:
+    """Count bookings that occupy a seat (confirmed plus checked in)."""
+    count = db.scalar(
+        select(func.count(Booking.id)).where(
+            Booking.session_id == session_id,
+            Booking.status.in_(OCCUPIED_STATUSES),
+        ),
     )
-    confirmed = db.execute(stmt).scalar_one()
+    return int(count or 0)
 
-    stmt2 = select(func.count(Booking.id)).where(
-        Booking.session_id == session.id,
-        Booking.status == STATUS_CONFIRMED,
-        Booking.checked_in,
+
+def waitlist_position(db: DbSession, booking: Booking) -> int | None:
+    """Return the 1-based waitlist position for a waitlisted booking."""
+    if booking.status != STATUS_WAITLISTED:
+        return None
+
+    waitlisted_ids = list(
+        db.scalars(
+            select(Booking.id)
+            .where(
+                Booking.session_id == booking.session_id,
+                Booking.status == STATUS_WAITLISTED,
+            )
+            .order_by(Booking.created_at.asc(), Booking.id.asc()),
+        ).all(),
     )
-    checked_in = db.execute(stmt2).scalar_one()
-
-    return confirmed + checked_in
-
-
-def book_session(session_id: int, user_id: int) -> dict:
-    """Book a seat in a session with race-safe capacity enforcement.
-
-    Returns a dict with:
-        {
-            "status": "confirmed" | "waitlisted",
-            "booking_id": int,
-            "session_id": int,
-            "user_id": int,
-        }
-
-    Raises ValueError for:
-        - Session not found
-        - Session ended/cancelled
-        - User already has active booking (unique index violation)
-    """
-    db = next(get_db_session())
     try:
-        # Lock the session row with FOR UPDATE to prevent concurrent races
-        stmt = select(SessionModel).where(SessionModel.id == session_id).with_for_update()
-        session = db.scalar(stmt)
-        if not session:
-            raise ValueError(ERROR_SESSION_NOT_FOUND)
+        return waitlisted_ids.index(booking.id) + 1
+    except ValueError:
+        return None
 
-        # If session is past or cancelled, reject
-        now = datetime.now(timezone.utc)
-        if now > session.start_at + timedelta(minutes=session.duration_minutes) or session.status == STATUS_CANCELLED:
-            raise ValueError(ERROR_SESSION_ENDED)
 
-        # Count occupied seats while the row is locked
-        occupied = _count_occupied(db, session)
+def book_session(
+    db: DbSession,
+    *,
+    session_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> tuple[Booking, int | None]:
+    """Book a seat or the waitlist under a row lock on the session.
 
-        if occupied >= session.capacity:
-            # Session is full -> waitlisted
-            booking = Booking(
-                session_id=session.id,
-                user_id=user_id,
-                status=STATUS_WAITLISTED,
-                checked_in=False,
-                created_at=now,
-            )
-            db.add(booking)
-            db.commit()
-            db.refresh(booking)
-            return {
-                "status": STATUS_WAITLISTED,
-                "booking_id": booking.id,
-                "session_id": session.id,
-                "user_id": user_id,
-            }
-        else:
-            # Seat available -> confirmed
-            booking = Booking(
-                session_id=session.id,
-                user_id=user_id,
-                status=STATUS_CONFIRMED,
-                checked_in=False,
-                created_at=now,
-            )
-            db.add(booking)
-            db.commit()
-            db.refresh(booking)
-            return {
-                "status": STATUS_CONFIRMED,
-                "booking_id": booking.id,
-                "session_id": session.id,
-                "user_id": user_id,
-            }
-    except ValueError as e:
+    The session row is locked with ``SELECT ... FOR UPDATE`` before the seat
+    count, so concurrent requests serialise and the invariant
+    ``confirmed + checked_in <= capacity`` holds at every commit.
+    """
+    session = db.scalar(
+        select(Session).where(Session.id == session_id).with_for_update(),
+    )
+    if session is None:
+        raise ApiError(404, "not_found", "Session not found")
+    if session.status == SESSION_CANCELLED or is_past(session):
+        raise ApiError(409, "conflict", "This session is not open for booking")
+
+    occupied = count_occupied(db, session.id)
+    status = status_for_occupancy(occupied=occupied, capacity=session.capacity)
+    created_at: datetime = utc_now()
+
+    booking = Booking(
+        session_id=session.id,
+        user_id=user_id,
+        status=status,
+        created_at=created_at,
+    )
+    db.add(booking)
+    try:
+        db.flush()
+    except IntegrityError as exc:
         db.rollback()
-        raise e
-    except IntegrityError:
-        # Unique index violation: user already has an active (non-cancelled) booking
-        db.rollback()
-        raise ValueError(ERROR_BOOKING_CONFLICT)
-    finally:
-        db.close()
+        raise ApiError(
+            409,
+            "booking_conflict",
+            "You already have an active booking for this session",
+        ) from exc
+
+    position = waitlist_position(db, booking)
+    db.commit()
+    db.refresh(booking)
+    return booking, position

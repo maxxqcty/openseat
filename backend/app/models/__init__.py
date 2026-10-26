@@ -1,9 +1,8 @@
-"""SQLAlchemy 2 models for OpenSeat backend."""
+"""SQLAlchemy models for the OpenSeat backend."""
 
-from __future__ import annotations
+from app.models.base import Base
+from app.models.bookings import Booking
+from app.models.sessions import Session
+from app.models.users import User
 
-from sqlalchemy import Boolean, Column, DateTime, Float, func
-from sqlalchemy.dialects.postgresql import INET, CIDR, CITEXT
-from sqlalchemy.types import Integer, String, SmallInteger
-
-from .base import Base
+__all__ = ["Base", "Booking", "Session", "User"]

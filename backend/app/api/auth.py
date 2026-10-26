@@ -2,204 +2,122 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from collections import defaultdict
+from threading import Lock
+from time import monotonic
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from fastapi.exceptions import HTTPException
+from sqlalchemy.orm import Session
 
-from app.config import get_settings
-from app.services.auth import (
-    AuthCredentials,
-    PublicUser,
-    ErrorShape,
-    hash_password,
-    verify_password,
-    create_access_token,
-    decode_access_token,
-    get_current_user,
-    authenticate_user,
-    signout_response,
-)
-
-# Rate limiting tracking: {email+ip: {"count": int, "reset_at": float}}
-login_attempts: dict[str, dict] = {}
+from app.api.deps import app_settings, get_current_user
+from app.config import Settings
+from app.db import get_db
+from app.errors import ApiError
+from app.models.users import User
+from app.schemas.auth import LoginRequest, RegisterRequest, UserPublic
+from app.services.auth import authenticate_user, create_access_token, register_user
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+_RATE_LIMIT = 10
+_RATE_WINDOW_SECONDS = 60.0
+_attempts: defaultdict[str, list[float]] = defaultdict(list)
+_attempts_lock = Lock()
 
-def _check_rate_limit(email: str, ip: str | None) -> None:
-    """Rate limit: 10 attempts per minute per email plus IP.
 
-    Raises 429 if limit exceeded.
-    """
-    from time import monotonic
+def reset_rate_limits() -> None:
+    """Clear the in-memory login throttle. Used by tests."""
+    with _attempts_lock:
+        _attempts.clear()
 
-    key = f"{email}|{ip or ''}"
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _enforce_rate_limit(email: str, ip: str) -> None:
+    key = f"{email.strip().lower()}|{ip}"
     now = monotonic()
-    window = 60  # seconds
-
-    attempt = login_attempts.get(key)
-    if attempt:
-        if now - attempt["reset_at"] > window:
-            # Window expired, reset
-            login_attempts[key] = {"count": 1, "reset_at": now + window}
-            return
-        if attempt["count"] >= 10:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many login attempts. Try again later.",
+    with _attempts_lock:
+        recent = [attempt for attempt in _attempts[key] if now - attempt < _RATE_WINDOW_SECONDS]
+        if len(recent) >= _RATE_LIMIT:
+            _attempts[key] = recent
+            raise ApiError(
+                429,
+                "rate_limited",
+                "Too many login attempts. Try again later.",
             )
-        attempt["count"] += 1
-    else:
-        login_attempts[key] = {"count": 1, "reset_at": now + window}
+        recent.append(now)
+        _attempts[key] = recent
 
 
-def _check_csrf_header(request: Request) -> None:
-    """Mutating requests require X-Requested-With: openseat header.
-
-    A missing or incorrect header returns 403.
-    """
-    requested_with = request.headers.get("X-Requested-With")
-    if requested_with != "openseat":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="CSRF token missing or invalid",
-        )
-
-
-@router.post("/register", status_code=201, response_model=PublicUser)
-async def register(
-    credentials: AuthCredentials,
-    response: Response,
-    request: Request,
-) -> PublicUser:
-    """Register a new user account.
-
-    Returns 201 with the public user on success.
-    Returns 409 if duplicate email.
-    Returns 422 for invalid email or short password.
-    """
-    # Check CSRF header for mutating request
-    _check_csrf_header(request)
-
-    # Check for duplicate email
-    from sqlalchemy import select
-    from sqlalchemy.orm import Session
-
-    from app.config import get_db_session
-
-    session = get_db_session()
-    try:
-        stmt = select(User).where(User.email == credentials.email)
-        existing = session.scalar(stmt)
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Email already registered",
-            )
-    finally:
-        session.close()
-
-    # Create the user
-    from app.models.users import User  # type: ignore
-    from app.config import get_db_session
-
-    hashed_pw = hash_password(credentials.password)
-    user_dict = {
-        "email": credentials.email,
-        "hashed_password": hashed_pw,
-        "is_active": True,
-        "is_superuser": False,
-        "is_verified": False,
-    }
-
-    session = get_db_session()
-    try:
-        user = User(**user_dict)
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-    finally:
-        session.close()
-
-    # Return public user representation
-    public = PublicUser.model_validate(user)
-
-    # Set the access token cookie
-    token = create_access_token(sub=user.id)
+def _set_session_cookie(response: Response, settings: Settings, token: str) -> None:
     response.set_cookie(
-        key="access_token",
+        key=settings.session_cookie_name,
         value=token,
         httponly=True,
         samesite="lax",
-        secure=get_settings().app_env == "production",
+        secure=settings.cookie_secure,
+        max_age=settings.session_ttl_hours * 3600,
         path="/",
     )
 
-    return public
 
-
-@router.post("/login", status_code=204, response_model=None)
-async def login(
-    credentials: AuthCredentials,
+@router.post(
+    "/register",
+    status_code=status.HTTP_201_CREATED,
+    response_model=UserPublic,
+)
+def register(
+    payload: RegisterRequest,
     response: Response,
+    settings: Annotated[Settings, Depends(app_settings)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    """Create an account, sign the user in, and return the public profile."""
+    user = register_user(
+        db,
+        display_name=payload.display_name,
+        email=str(payload.email),
+        password=payload.password,
+    )
+    _set_session_cookie(response, settings, create_access_token(user.id))
+    return user
+
+
+@router.post("/login", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def login(
+    payload: LoginRequest,
     request: Request,
+    response: Response,
+    settings: Annotated[Settings, Depends(app_settings)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> None:
-    """Log in a user.
+    """Sign in and set the HttpOnly session cookie."""
+    _enforce_rate_limit(str(payload.email), _client_ip(request))
+    user = authenticate_user(db, email=str(payload.email), password=payload.password)
+    if user is None:
+        raise ApiError(401, "unauthorized", "Incorrect email or password")
+    _set_session_cookie(response, settings, create_access_token(user.id))
 
-    Returns 204 on success with HttpOnly, SameSite=Lax cookie.
-    Returns 401 for bad credentials.
-    Rate limits: 10 attempts per minute per email plus IP returns 429.
-    """
-    _check_rate_limit(credentials.email, request.client.host if request.client else None)
 
-    user = authenticate_user(credentials.email, credentials.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Set the access token cookie
-    response.set_cookie(
-        key="access_token",
-        value=create_access_token(sub=user.id),
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
+def logout(
+    response: Response,
+    settings: Annotated[Settings, Depends(app_settings)],
+) -> None:
+    """Clear the session cookie."""
+    response.delete_cookie(
+        key=settings.session_cookie_name,
         httponly=True,
         samesite="lax",
-        secure=get_settings().app_env == "production",
+        secure=settings.cookie_secure,
         path="/",
     )
 
-    return None
 
-
-@router.post("/logout", status_code=204, response_model=None)
-async def logout(response: Response) -> None:
-    """Log out a user.
-
-    Returns 204 and clears the access_token cookie.
-    """
-    signout_response(response)
-    return None
-
-
-@router.get("/me", response_model=PublicUser)
-async def me(request: Request) -> PublicUser:
-    """Get the current user's profile.
-
-    Returns 200 with user data or 401 when signed out.
-    """
-    return get_current_user(request)
-
-
-@router.get("/csrf-token")
-async def csrf_token(request: Request) -> dict:
-    """Return a CSRF token for mutating requests.
-
-    Mutating requests require X-Requested-With: openseat header.
-    A missing or incorrect header returns 403.
-    """
-    _check_csrf_header(request)
-    import os
-    return {"csrf_token": os.urandom(32).hex()}
+@router.get("/me", response_model=UserPublic)
+def me(user: Annotated[User, Depends(get_current_user)]) -> User:
+    """Return the signed-in user's profile."""
+    return user

@@ -1,71 +1,59 @@
-"""migrations env.py"""
+"""Alembic environment configuration."""
+
+from __future__ import annotations
 
 import os
-import sys
-from pathlib import Path
+from logging.config import fileConfig
 
-# Ensure the backend app is importable
-_backend_app = Path(__file__).parent.parent / "app"
-if str(_backend_app) not in sys.path:
-    sys.path.insert(0, str(_backend_app))
+from alembic import context
+from sqlalchemy import engine_from_config, pool
 
-# Import the Base from the application models so autogenerate can detect metadata
-from models.base import Base  # type: ignore
+from app.models import Base
+
+config = context.config
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
 
-def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL (no Engine is created).
-    By skipping the Engine creation we don't even need a DB to be configured.
-    Calls to context.execute() emit the given string to the script output.
-
-    URL objects are supported too, provided they are compatible with
-    `sqlalchemy.engine.URL`.
-    """
+def _database_url() -> str:
     url = os.environ.get("DATABASE_URL")
     if not url:
-        raise ValueError("DATABASE_URL environment variable is required for offline migrations")
+        raise RuntimeError("DATABASE_URL is required to run migrations")
+    return url
+
+
+def run_migrations_offline() -> None:
+    """Run migrations without creating an engine."""
     context.configure(
-        url=url,
+        url=_database_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
-
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
-
-    In this mode we need to create an Engine and associate a connection with
-    the migration context.
-    """
-    configuration = context.get_configuration()
-    # Override the sqlalchemy.url from the env variable
-    configuration["sqlalchemy"].pop("sqlalchemy.url", None)
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise ValueError("DATABASE_URL environment variable is required for online migrations")
-
+    """Run migrations against a live database."""
+    configuration = config.get_section(config.config_ini_section, {})
+    configuration["sqlalchemy.url"] = _database_url()
     connectable = engine_from_config(
-        {"sqlalchemy": {}},
+        configuration,
         prefix="sqlalchemy.",
-        url=url,
         poolclass=pool.NullPool,
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
-
+        context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
-            # Enable citext extension on the database
-            from sqlalchemy import text as sa_text
-            connection.execute(sa_text("CREATE EXTENSION IF NOT EXISTS citext"))
             context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()

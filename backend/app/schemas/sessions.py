@@ -2,51 +2,47 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.bookings import BookingPublic
 
 
 class SessionCreate(BaseModel):
     """Input for creating a new session."""
 
-    title: str = Field(min_length=1, description="Session title")
-    description: str | None = Field(default=None, description="Optional session description")
-    start_at: datetime = Field(description="Session start time (UTC ISO 8601)")
-    duration_minutes: int = Field(default=60, ge=1, description="Duration in minutes")
-    capacity: int = Field(default=10, ge=1, description="Maximum attendees")
-    location: str | None = Field(default=None, description="Optional session location")
+    title: str = Field(min_length=3, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    starts_at: datetime
+    duration_minutes: int = Field(ge=15, le=480)
+    capacity: int = Field(ge=1, le=100)
+    location: str = Field(min_length=3, max_length=200)
 
 
 class SessionPublic(BaseModel):
-    """Public-facing session data returned to all users."""
+    """Session fields safe to expose to everyone."""
 
-    id: int
-    host_id: int
+    id: uuid.UUID
+    host_id: uuid.UUID
     title: str
-    description: str | None = None
-    start_at: datetime
+    description: str
+    starts_at: datetime
     duration_minutes: int
     capacity: int
-    location: str | None = None
+    location: str
     status: str
     created_at: datetime
+    past: bool = False
 
-    model_config = {"from_attributes": True}
-
-    @property
-    def my_booking(self):
-        """Placeholder for the signed-in user's booking (set by routes)."""
-        return None
+    model_config = ConfigDict(from_attributes=True)
 
 
-class SessionUpdate(BaseModel):
-    """Partial update for a session (out of scope for issue #5)."""
+class SessionDetail(SessionPublic):
+    """Session detail with seat counts and the caller's booking."""
 
-    title: str | None = Field(default=None, min_length=1)
-    description: str | None = Field(default=None)
-    start_at: datetime | None = Field(default=None)
-    duration_minutes: int | None = Field(default=None, ge=1)
-    capacity: int | None = Field(default=None, ge=1)
-    location: str | None = Field(default=None)
-    status: str | None = Field(default=None)
+    confirmed_count: int
+    checked_in_count: int
+    waitlist_count: int
+    my_booking: BookingPublic | None = None

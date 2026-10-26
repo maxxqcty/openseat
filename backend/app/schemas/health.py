@@ -8,6 +8,6 @@ from pydantic import BaseModel
 class HealthResponse(BaseModel):
     """Process health as seen by deployment and monitoring tools."""
 
-    status: Literal["ok"]
+    status: Literal["ok", "degraded"]
     version: str
-    database: Literal["not_configured", "available"]
+    database: Literal["not_configured", "available", "unavailable"]

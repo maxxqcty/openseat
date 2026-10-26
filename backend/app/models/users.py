@@ -1,11 +1,32 @@
-"""SQLAlchemy 2 models for user accounts."""
+"""SQLAlchemy model for user accounts."""
 
 from __future__ import annotations
 
-from sqlalchemy import func
-from sqlalchemy import Boolean, Column, DateTime, String, Text
+import uuid
+from datetime import datetime
 
-from sqlalchemy.dialects.postgresql import CITEXT
-from sqlalchemy.types import Integer
+from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy.dialects.postgresql import CITEXT, UUID
+from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from app.models.base import Base
+
+
+class User(Base):
+    """A registered account; any authenticated user may host a session."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    email: Mapped[str] = mapped_column(CITEXT(), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )

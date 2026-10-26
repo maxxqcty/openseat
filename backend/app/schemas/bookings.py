@@ -1,22 +1,24 @@
-"""Pydantic models for booking requests and responses."""
+"""Pydantic models for bookings."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
 
 
-class BookingCreate(BaseModel):
-    """Input for creating a booking."""
+class BookingPublic(BaseModel):
+    """A booking as returned by the API."""
 
-    session_id: int = Field(..., gt=0, description="Session ID to book")
+    id: uuid.UUID
+    session_id: uuid.UUID
+    user_id: uuid.UUID
+    status: str
+    created_at: datetime
+    promoted_at: datetime | None = None
+    checked_in_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    waitlist_position: int | None = None
 
-
-class BookingResponse(BaseModel):
-    """Public-facing booking response."""
-
-    status: str = Field(description="Booking status: confirmed or waitlisted")
-    booking_id: int = Field(..., gt=0, description="Generated booking ID")
-    session_id: int = Field(..., gt=0, description="Session ID")
-    user_id: int = Field(..., gt=0, description="User ID who made the booking")
-
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

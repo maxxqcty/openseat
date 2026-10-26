@@ -1,5 +1,7 @@
 """Base SQLAlchemy model class for all database models."""
 
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    """Declarative base shared by every model."""

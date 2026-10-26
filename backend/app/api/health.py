@@ -4,26 +4,20 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
+from sqlalchemy import text
 
+from app.api.deps import app_settings
 from app.config import Settings
+from app.db import get_engine
 from app.schemas.health import HealthResponse
 
 router = APIRouter(tags=["health"])
 
 
-def app_settings(request: Request) -> Settings:
-    """Read the settings attached to the current application instance."""
-    settings: Settings = request.app.state.settings
-    return settings
-
-
 @router.get("/healthz", response_model=HealthResponse)
 def healthz(settings: Annotated[Settings, Depends(app_settings)]) -> HealthResponse:
-    """Report process liveness and the deployed version.
-
-    Reports real database connectivity status.
-    """
+    """Report liveness, version, and real database connectivity."""
     if not settings.database_url:
         return HealthResponse(
             status="ok",
@@ -31,18 +25,19 @@ def healthz(settings: Annotated[Settings, Depends(app_settings)]) -> HealthRespo
             database="not_configured",
         )
 
-    import psycopg2
-
-    database_status = "unavailable"
     try:
-        conn = psycopg2.connect(str(settings.database_url))  # type: ignore
-        conn.close()
-        database_status = "available"
+        engine = get_engine(settings.database_url)
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
     except Exception:
-        database_status = "unavailable"
+        return HealthResponse(
+            status="degraded",
+            version=settings.app_version,
+            database="unavailable",
+        )
 
     return HealthResponse(
         status="ok",
         version=settings.app_version,
-        database=database_status,
+        database="available",
     )

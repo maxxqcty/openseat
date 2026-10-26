@@ -1,186 +1,96 @@
-"""Authentication service using argon2-cffi for hashing and pyjwt for signed cookies."""
+"""Authentication domain logic: hashing, tokens, and account operations."""
 
 from __future__ import annotations
 
-import json
-import time
-from typing import Optional
+import uuid
+from datetime import UTC, datetime, timedelta
 
 import argon2
 import jwt
-from fastapi import Request, Response, HTTPException, status
-from pydantic import BaseModel, EmailStr, field_validator
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.errors import ApiError
+from app.models.users import User
 
-settings = get_settings()
-
-# Argon2 password hasher
-_hasher = argon2.PasswordHasher(
-    time_cost=settings.argon2_time_cost or 15,
-    memory_cost=settings.argon2_memory_cost or 65536,
-    parallelism=settings.argon2_parallelism or 2,
-    hash_len=32,
-)
+_ALGORITHM = "HS256"
+_hasher = argon2.PasswordHasher()
 
 
-class AuthCredentials(BaseModel):
-    """Login credentials for authentication."""
-
-    email: EmailStr
-    password: str
-
-    @field_validator("password")
-    @classmethod
-    def password_must_be_sufficient(cls, v: str) -> str:
-        """Validate password minimum length."""
-        if len(v) < 8:
-            raise ValueError("Password must be at least 8 characters long")
-        return v
+def hash_password(password: str) -> str:
+    """Hash a plain-text password with Argon2id."""
+    return _hasher.hash(password)
 
 
-class PublicUser(BaseModel):
-    """Public-facing user representation (no sensitive fields)."""
-
-    id: int
-    email: str
-    is_active: bool
-    is_superuser: bool
-    is_verified: bool
-    last_login: Optional[str] = None
-    created_at: str
-    updated_at: str
-
-    model_config = {"from_attributes": True}
-
-
-class ErrorShape(BaseModel):
-    """Standardized error response shape."""
-
-    error: str
-    message: str
-    path: str | None = None
-
-
-def hash_password(plain_text: str) -> str:
-    """Hash a plain-text password using Argon2id."""
-    return _hasher.hash(plain_text)
-
-
-def verify_password(plain_text: str, hashed: str) -> bool:
-    """Verify a plain-text password against an Argon2 hash."""
+def verify_password(password: str, password_hash: str) -> bool:
+    """Check a plain-text password against an Argon2 hash."""
     try:
-        _hasher.verify(hashed, plain_text)
-        return True
-    except Exception:
+        return _hasher.verify(password_hash, password)
+    except (
+        argon2.exceptions.VerifyMismatchError,
+        argon2.exceptions.VerificationError,
+        argon2.exceptions.InvalidHashError,
+    ):
         return False
 
 
-def create_access_token(
-    subject: int | str,
-    expires_delta_seconds: Optional[int] = None,
-) -> str:
-    """Create a JWT access token."""
-    now = int(time.time())
-    to_encode = {"sub": str(subject), "iat": now}
-    if expires_delta_seconds:
-        to_encode["exp"] = now + expires_delta_seconds
-    else:
-        # Default 15 minutes
-        to_encode["exp"] = now + 15 * 60
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.session_secret.get_secret_value(),
-        algorithm="HS256",
+def create_access_token(user_id: uuid.UUID) -> str:
+    """Create a signed session token for the user."""
+    settings = get_settings()
+    now = datetime.now(UTC)
+    payload = {
+        "sub": str(user_id),
+        "iat": now,
+        "exp": now + timedelta(hours=settings.session_ttl_hours),
+    }
+    return jwt.encode(payload, settings.session_secret, algorithm=_ALGORITHM)
+
+
+def decode_access_token(token: str) -> uuid.UUID:
+    """Validate a session token and return the user id."""
+    settings = get_settings()
+    try:
+        payload = jwt.decode(token, settings.session_secret, algorithms=[_ALGORITHM])
+        return uuid.UUID(str(payload["sub"]))
+    except (jwt.InvalidTokenError, KeyError, ValueError) as exc:
+        raise ApiError(401, "unauthorized", "Authentication required") from exc
+
+
+def register_user(
+    db: Session,
+    *,
+    display_name: str,
+    email: str,
+    password: str,
+) -> User:
+    """Create an account, rejecting blank names and duplicate emails."""
+    name = display_name.strip()
+    if not name:
+        raise ApiError(422, "validation_error", "Display name is required")
+
+    if db.scalar(select(User).where(User.email == email)) is not None:
+        raise ApiError(409, "conflict", "Email already registered")
+
+    user = User(
+        email=email,
+        password_hash=hash_password(password),
+        display_name=name,
     )
-    return encoded_jwt
-
-
-def decode_access_token(token: str) -> dict:
-    """Decode and validate a JWT access token."""
+    db.add(user)
     try:
-        payload = jwt.decode(
-            token,
-            settings.session_secret.get_secret_value(),
-            algorithms=["HS256"],
-        )
-        return payload
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token has expired",
-        )
-    except jwt.InvalidTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token",
-        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ApiError(409, "conflict", "Email already registered") from exc
+    db.refresh(user)
+    return user
 
 
-def get_current_user(request: Request) -> PublicUser:
-    """Extract the current user from the JWT cookie in the request."""
-    token = request.cookies.get("access_token")
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
-    payload = decode_access_token(token)
-    user_id: int = int(payload.get("sub"))
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token payload",
-        )
-    # Import here to avoid circular imports
-    from app.models.users import User  # type: ignore
-    from sqlalchemy import select
-    from sqlalchemy.orm import Session
-
-    from app.config import get_db_session
-
-    session = get_db_session()
-    try:
-        stmt = select(User).where(User.id == user_id)
-        user = session.scalar(stmt)
-        if not user or not user.is_active:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found or inactive",
-            )
-        return PublicUser.model_validate(user)
-    finally:
-        session.close()
-
-
-def authenticate_user(email: str, password: str) -> Optional[PublicUser]:
-    """Authenticate a user by email and password. Returns PublicUser or None."""
-    from sqlalchemy import select
-    from sqlalchemy.orm import Session
-
-    from app.config import get_db_session
-
-    session = get_db_session()
-    try:
-        stmt = select(User).where(User.email == email)
-        user = session.scalar(stmt)
-        if not user:
-            return None
-        if not user.is_active:
-            return None
-        if not verify_password(password, user.hashed_password):
-            return None
-        return PublicUser.model_validate(user)
-    finally:
-        session.close()
-
-
-def signout_response(response: Response) -> None:
-    """Clear the access_token cookie from the response."""
-    response.delete_cookie(
-        key="access_token",
-        httponly=True,
-        samesite="lax",
-        secure=os.environ.get("APP_ENV", "development") == "production",
-        path="/",
-    )
+def authenticate_user(db: Session, *, email: str, password: str) -> User | None:
+    """Return the matching user for valid credentials, otherwise None."""
+    user = db.scalar(select(User).where(User.email == email))
+    if user is None or not verify_password(password, user.password_hash):
+        return None
+    return user
