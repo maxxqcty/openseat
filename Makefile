@@ -3,7 +3,7 @@ PYTHON ?= python
 BACKEND := backend
 FRONTEND := frontend
 
-.PHONY: install dev test lint fmt seed seed-reset
+.PHONY: install dev test lint fmt seed seed-reset docker-up docker-down docker-build
 
 install:
 	cd $(BACKEND) && uv sync
@@ -32,3 +32,15 @@ fmt:
 	cd $(BACKEND) && uv run ruff check --fix .
 	cd $(BACKEND) && uv run ruff format .
 	cd $(FRONTEND) && npm run format
+
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+docker-down-v:
+	docker compose down -v

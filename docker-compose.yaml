@@ -1,0 +1,43 @@
+services:
+  db:
+    image: postgres:16.8-alpine
+    container_name: openseat-db
+    environment:
+      POSTGRES_USER: openseat
+      POSTGRES_PASSWORD: openseat
+      POSTGRES_DB: openseat
+    volumes:
+      - openseat-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openseat -d openseat"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - openseat-network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openseat-app
+    environment:
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://openseat:openseat@db:5432/openseat
+      SESSION_SECRET: ${SESSION_SECRET}
+      SESSION_COOKIE_SECURE: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - openseat-network
+
+volumes:
+  openseat-db-data:
+
+networks:
+  openseat-network:
+    driver: bridge
