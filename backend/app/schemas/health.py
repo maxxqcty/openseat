@@ -10,4 +10,4 @@ class HealthResponse(BaseModel):
 
     status: Literal["ok"]
     version: str
-    database: Literal["not_configured"]
+    database: Literal["not_configured", "available"]
