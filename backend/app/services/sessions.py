@@ -99,6 +99,12 @@ def get_session(db: DbSession, session_id: uuid.UUID) -> Session:
     return session
 
 
+def require_host(session: Session, host_id: uuid.UUID) -> None:
+    """Allow only the session's host to manage it."""
+    if session.host_id != host_id:
+        raise ApiError(403, "forbidden", "Only the host can manage this session")
+
+
 def seat_counts(db: DbSession, session_id: uuid.UUID) -> dict[str, int]:
     """Return confirmed, checked-in, and waitlisted counts in one query."""
     rows = db.execute(
@@ -148,8 +154,7 @@ def cancel_session(
     )
     if session is None:
         raise ApiError(404, "not_found", "Session not found")
-    if session.host_id != host_id:
-        raise ApiError(403, "forbidden", "Only the host can cancel this session")
+    require_host(session, host_id)
     if session.status == STATUS_CANCELLED:
         return session
 

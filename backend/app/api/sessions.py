@@ -12,8 +12,9 @@ from app.api.deps import get_current_user, get_optional_user
 from app.db import get_db
 from app.models.sessions import Session
 from app.models.users import User
-from app.schemas.bookings import BookingPublic
+from app.schemas.bookings import BookingPublic, Roster, RosterEntry
 from app.schemas.sessions import SessionCreate, SessionDetail, SessionPublic
+from app.services import roster as roster_service
 from app.services import sessions as session_service
 from app.services.bookings import waitlist_position
 
@@ -96,6 +97,32 @@ def get_session(
     """Return session detail with seat counts and the caller's booking."""
     session = session_service.get_session(db, session_id)
     return _build_detail(db, session, user)
+
+
+def _roster_entry(row: roster_service.RosterRow) -> RosterEntry:
+    return RosterEntry(
+        booking_id=row.booking.id,
+        display_name=row.display_name,
+        status=row.booking.status,
+        created_at=row.booking.created_at,
+        checked_in_at=row.booking.checked_in_at,
+        waitlist_position=row.waitlist_position,
+    )
+
+
+@router.get("/{session_id}/bookings", response_model=Roster)
+def get_roster(
+    session_id: uuid.UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[DbSession, Depends(get_db)],
+) -> Roster:
+    """Return the host's roster grouped into confirmed, waitlisted, and checked in."""
+    data = roster_service.get_roster(db, session_id=session_id, host_id=user.id)
+    return Roster(
+        confirmed=[_roster_entry(row) for row in data.confirmed],
+        waitlisted=[_roster_entry(row) for row in data.waitlisted],
+        checked_in=[_roster_entry(row) for row in data.checked_in],
+    )
 
 
 @router.post("/{session_id}/cancel", response_model=SessionDetail)

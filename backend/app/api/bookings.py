@@ -16,12 +16,13 @@ from app.models.users import User
 from app.schemas.bookings import BookingPublic
 from app.schemas.sessions import MyBookingPublic, SessionPublic
 from app.services import bookings as booking_service
+from app.services import roster as roster_service
 from app.services.bookings import book_session
 from app.services.sessions import is_past
 
 router = APIRouter(prefix="/api/sessions", tags=["bookings"])
 me_router = APIRouter(prefix="/api/me", tags=["bookings"])
-delete_router = APIRouter(prefix="/api/bookings", tags=["bookings"])
+item_router = APIRouter(prefix="/api/bookings", tags=["bookings"])
 
 
 def _my_booking(
@@ -60,7 +61,7 @@ def create_booking(
     )
 
 
-@delete_router.delete(
+@item_router.delete(
     "/{booking_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
@@ -72,6 +73,21 @@ def delete_booking(
 ) -> None:
     """Cancel the caller's booking, promoting the oldest waiter if a seat frees."""
     booking_service.cancel_booking(db, booking_id=booking_id, user_id=user.id)
+
+
+@item_router.post("/{booking_id}/check-in", response_model=BookingPublic)
+def check_in_booking(
+    booking_id: uuid.UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[DbSession, Depends(get_db)],
+) -> BookingPublic:
+    """Check in a confirmed guest during the check-in window. Host-only."""
+    booking = roster_service.check_in_booking(
+        db,
+        booking_id=booking_id,
+        host_id=user.id,
+    )
+    return BookingPublic.model_validate(booking)
 
 
 @me_router.get("/bookings", response_model=list[MyBookingPublic])

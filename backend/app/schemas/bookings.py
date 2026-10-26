@@ -22,3 +22,22 @@ class BookingPublic(BaseModel):
     waitlist_position: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RosterEntry(BaseModel):
+    """One guest on the host's roster; never includes email addresses."""
+
+    booking_id: uuid.UUID
+    display_name: str
+    status: str
+    created_at: datetime
+    checked_in_at: datetime | None = None
+    waitlist_position: int | None = None
+
+
+class Roster(BaseModel):
+    """The host's roster grouped by booking status."""
+
+    confirmed: list[RosterEntry]
+    waitlisted: list[RosterEntry]
+    checked_in: list[RosterEntry]
