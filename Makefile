@@ -3,7 +3,7 @@ PYTHON ?= python
 BACKEND := backend
 FRONTEND := frontend
 
-.PHONY: install dev test lint fmt
+.PHONY: install dev test lint fmt seed seed-reset
 
 install:
 	cd $(BACKEND) && uv sync
@@ -21,6 +21,12 @@ lint:
 	cd $(BACKEND) && uv run mypy app
 	cd $(FRONTEND) && npm run lint
 	cd $(FRONTEND) && npm run typecheck
+
+seed:
+	cd $(BACKEND) && uv run python -m app.seed
+
+seed-reset:
+	cd $(BACKEND) && uv run python -m app.seed --reset
 
 fmt:
 	cd $(BACKEND) && uv run ruff check --fix .

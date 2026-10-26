@@ -15,6 +15,7 @@ import { mockApi, resetMock } from './mock'
 import type { Api } from './types'
 
 export * from './types'
+export * from './api-types'
 export { resetMock }
 
 const requestedMode = import.meta.env.VITE_API_MODE

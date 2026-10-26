@@ -124,6 +124,28 @@ Full stack with Postgres (arrives with issue #13):
 docker compose up --build
 ```
 
+## Demo data
+
+```bash
+make seed         # create the demo users, sessions, and bookings
+make seed-reset   # delete only the seeded rows, then recreate them
+```
+
+Seeded accounts use example.com addresses and placeholder names, and share the
+development password `openseat-dev-password`:
+
+| Account | Email |
+| --- | --- |
+| Host | `host@example.com` |
+| Guest A | `guest-a@example.com` |
+| Guest B | `guest-b@example.com` |
+
+Seeding is safe to run twice: it refreshes the same rows instead of duplicating
+them, and session start times are recomputed from the clock so the demo never
+goes stale. Seeding is development-only — `uv run python -m app.seed` refuses to
+run when `APP_ENV=production`, and nothing in the application calls it
+automatically.
+
 ## Tests
 
 ```bash
@@ -134,6 +156,22 @@ make fmt    # ruff and Prettier
 
 The test strategy is in `_docs/testing.md`. Playwright end-to-end tests arrive
 with issue #14.
+
+## API contract
+
+`openapi.yaml` at the repository root is the canonical API contract. The
+FastAPI app must expose every path and method it documents, and
+`frontend/src/services/api-types.ts` mirrors its request and response schemas.
+CI fails when either side adds or removes an endpoint without updating the
+contract; schema-level differences (success status and request body) are
+warnings in v1.
+
+```bash
+cd backend && uv run python ../scripts/check_contract.py
+```
+
+The check runs offline: it imports the app, never connects to a database, and
+supplies its own test settings.
 
 ## Deployment
 

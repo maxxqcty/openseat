@@ -1,4 +1,4 @@
-"""Tests for the health endpoint."""
+"""Unit tests for the health endpoint."""
 
 from collections.abc import Iterator
 
@@ -11,7 +11,14 @@ from app.main import create_app
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    app = create_app(Settings(app_version="test-version"))
+    app = create_app(
+        Settings(
+            app_env="test",
+            app_version="test-version",
+            database_url=None,
+            session_secret="x" * 40,
+        ),
+    )
     with TestClient(app) as test_client:
         yield test_client
 
