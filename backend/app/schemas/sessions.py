@@ -46,3 +46,9 @@ class SessionDetail(SessionPublic):
     checked_in_count: int
     waitlist_count: int
     my_booking: BookingPublic | None = None
+
+
+class MyBookingPublic(BookingPublic):
+    """A booking with the session summary, for the caller's booking list."""
+
+    session: SessionPublic

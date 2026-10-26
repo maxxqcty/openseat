@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
+
+from app.db import get_engine
 
 CSRF_HEADERS = {"X-Requested-With": "openseat"}
 PASSWORD = "password123"
@@ -79,6 +84,30 @@ def book(client: TestClient, session_id: str) -> object:
         f"/api/sessions/{session_id}/bookings",
         headers=CSRF_HEADERS,
     )
+
+
+@contextmanager
+def counted_selects(url: str) -> Iterator[list[str]]:
+    """Record SELECT statements executed on the shared engine."""
+    engine = get_engine(url)
+    statements: list[str] = []
+
+    def record(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,
+    ) -> None:
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
 
 
 def session_id(value: dict[str, object]) -> uuid.UUID:

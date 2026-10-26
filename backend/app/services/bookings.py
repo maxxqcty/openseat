@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -37,25 +39,68 @@ def count_occupied(db: DbSession, session_id: uuid.UUID) -> int:
     return int(count or 0)
 
 
+def waitlist_order() -> list[Any]:
+    """Return the deterministic oldest-first ordering for the waitlist."""
+    return [Booking.created_at.asc(), Booking.id.asc()]
+
+
+def waitlist_positions(
+    db: DbSession,
+    bookings: Sequence[Booking],
+) -> dict[uuid.UUID, int]:
+    """Return 1-based waitlist positions for the given bookings in one query."""
+    waitlisted = [booking for booking in bookings if booking.status == STATUS_WAITLISTED]
+    if not waitlisted:
+        return {}
+
+    session_ids = {booking.session_id for booking in waitlisted}
+    ranked = (
+        select(
+            Booking.id.label("booking_id"),
+            func.row_number()
+            .over(
+                partition_by=Booking.session_id,
+                order_by=waitlist_order(),
+            )
+            .label("position"),
+        )
+        .where(
+            Booking.session_id.in_(session_ids),
+            Booking.status == STATUS_WAITLISTED,
+        )
+        .subquery()
+    )
+    rows = db.execute(
+        select(ranked.c.booking_id, ranked.c.position).where(
+            ranked.c.booking_id.in_([booking.id for booking in waitlisted]),
+        ),
+    ).all()
+    return {booking_id: int(position) for booking_id, position in rows}
+
+
 def waitlist_position(db: DbSession, booking: Booking) -> int | None:
     """Return the 1-based waitlist position for a waitlisted booking."""
     if booking.status != STATUS_WAITLISTED:
         return None
+    return waitlist_positions(db, [booking]).get(booking.id)
 
-    waitlisted_ids = list(
-        db.scalars(
-            select(Booking.id)
-            .where(
-                Booking.session_id == booking.session_id,
-                Booking.status == STATUS_WAITLISTED,
-            )
-            .order_by(Booking.created_at.asc(), Booking.id.asc()),
-        ).all(),
-    )
-    try:
-        return waitlisted_ids.index(booking.id) + 1
-    except ValueError:
-        return None
+
+def list_bookings_for_user(
+    db: DbSession,
+    user_id: uuid.UUID,
+) -> list[tuple[Booking, Session]]:
+    """Return every booking for a user with its session, soonest first."""
+    rows = db.execute(
+        select(Booking, Session)
+        .join(Session, Booking.session_id == Session.id)
+        .where(Booking.user_id == user_id)
+        .order_by(
+            Session.starts_at.asc(),
+            Booking.created_at.asc(),
+            Booking.id.asc(),
+        ),
+    ).all()
+    return [(booking, session) for booking, session in rows]
 
 
 def book_session(

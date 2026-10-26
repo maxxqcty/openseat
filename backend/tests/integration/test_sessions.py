@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event, select
+from sqlalchemy import select
 
-from app.db import get_engine, get_session_factory
+from app.db import get_session_factory
 from app.models.bookings import Booking
 from app.models.sessions import Session
 from tests.conftest import requires_postgres
 from tests.integration.helpers import (
     CSRF_HEADERS,
     book,
+    counted_selects,
     create_session,
     login,
     logout,
@@ -39,30 +38,6 @@ def _payload(**overrides: object) -> dict[str, object]:
     }
     payload.update(overrides)
     return payload
-
-
-@contextmanager
-def _counted_selects(db_url: str) -> Iterator[list[str]]:
-    """Record SELECT statements executed on the shared engine."""
-    engine = get_engine(db_url)
-    statements: list[str] = []
-
-    def record(
-        conn: object,
-        cursor: object,
-        statement: str,
-        parameters: object,
-        context: object,
-        executemany: bool,
-    ) -> None:
-        if statement.lstrip().upper().startswith("SELECT"):
-            statements.append(statement)
-
-    event.listen(engine, "before_cursor_execute", record)
-    try:
-        yield statements
-    finally:
-        event.remove(engine, "before_cursor_execute", record)
 
 
 def test_create_requires_authentication(client: TestClient) -> None:
@@ -215,7 +190,7 @@ def test_list_and_detail_queries_do_not_scale_with_rows(
     for index in range(3):
         create_session(client, starts_in_hours=index + 1, title=f"Session {index}")
 
-    with _counted_selects(db_url) as list_statements:
+    with counted_selects(db_url) as list_statements:
         response = client.get("/api/sessions")
     assert response.status_code == 200
     assert len(response.json()) == 3
@@ -229,7 +204,7 @@ def test_list_and_detail_queries_do_not_scale_with_rows(
     register(client, email="nplus1-waiter@example.com")
     assert book(client, session_id).json()["status"] == "waitlisted"
 
-    with _counted_selects(db_url) as first_detail:
+    with counted_selects(db_url) as first_detail:
         detail = client.get(f"/api/sessions/{session_id}")
     assert detail.status_code == 200
     assert detail.json()["my_booking"]["waitlist_position"] == 1
@@ -237,7 +212,7 @@ def test_list_and_detail_queries_do_not_scale_with_rows(
     register(client, email="nplus1-second-waiter@example.com")
     assert book(client, session_id).json()["status"] == "waitlisted"
 
-    with _counted_selects(db_url) as second_detail:
+    with counted_selects(db_url) as second_detail:
         detail = client.get(f"/api/sessions/{session_id}")
     assert detail.status_code == 200
     assert detail.json()["my_booking"]["waitlist_position"] == 2

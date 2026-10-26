@@ -8,6 +8,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
 from app.api.auth import router as auth_router
+from app.api.bookings import me_router as me_bookings_router
 from app.api.bookings import router as bookings_router
 from app.api.health import router as health_router
 from app.api.sessions import router as sessions_router
@@ -71,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(sessions_router)
     app.include_router(bookings_router)
+    app.include_router(me_bookings_router)
     return app
 
 
