@@ -30,7 +30,9 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_UR
 
 def _database_available(url: str) -> bool:
     try:
-        engine = create_engine(url)
+        # Bound the probe: without a timeout, libpq can wait indefinitely for a
+        # refused port and hang every pytest run at import time.
+        engine = create_engine(url, connect_args={"connect_timeout": 3})
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
         engine.dispose()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,21 @@ class Settings(BaseSettings):
     session_cookie_name: str = "openseat_session"
     session_ttl_hours: int = 8
     session_cookie_secure: bool = False
+
+    @field_validator("database_url", mode="after")
+    @classmethod
+    def normalize_database_url(cls, value: str | None) -> str | None:
+        """Accept the libpq form ``postgres://`` that ``fly mpg attach`` sets.
+
+        SQLAlchemy needs an explicit dialect; without this, the URL Fly writes
+        as a secret would fail to load a plugin at first connect.
+        """
+        if value is None:
+            return None
+        for prefix in ("postgres://", "postgresql://"):
+            if value.startswith(prefix):
+                return "postgresql+psycopg://" + value[len(prefix) :]
+        return value
 
     @model_validator(mode="after")
     def validate_session_secret(self) -> Settings:

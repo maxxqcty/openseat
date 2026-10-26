@@ -70,12 +70,24 @@ cat > /app/entrypoint.sh <<'SCRIPT'
 #!/bin/sh
 set -e
 
-# Run migrations
+# Make the virtualenv's console scripts (alembic, uvicorn) resolvable.
+export PATH="/app/backend/.venv/bin:$PATH"
 cd /app/backend
-/app/backend/.venv/bin/alembic upgrade head
 
-# Start application
-exec /app/backend/.venv/bin/uvicorn app.main:app \
+# Fly runs `release_command` through this entrypoint with the command as
+# arguments (it replaces CMD, not ENTRYPOINT). Run it and exit with its status
+# so a failed migration fails the deploy instead of starting the server.
+if [ "$#" -eq 1 ]; then
+    # One argument may be a whole command line, e.g. "alembic upgrade head".
+    exec sh -c "$1"
+fi
+if [ "$#" -gt 1 ]; then
+    exec "$@"
+fi
+
+# Run migrations, then start the application.
+alembic upgrade head
+exec uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 8080 \
     --workers 1

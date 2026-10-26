@@ -98,8 +98,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(me_bookings_router)
     app.include_router(booking_item_router)
 
-    # Serve frontend in production
-    if resolved.app_env == "production" and FRONTEND_DIST.exists():
+    # Serve the built frontend whenever it is present. The container always
+    # ships `dist/`, so a dev Fly app works without Vite; tests never serve it.
+    if resolved.app_env != "test" and FRONTEND_DIST.exists():
         # Mount static assets with long cache
         app.mount(
             "/assets",
