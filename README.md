@@ -99,6 +99,7 @@ way.
 - GNU Make
 - Docker with Compose v2 (first used by issue #13)
 - `gh` for the issue workflow
+- [`flyctl`](https://fly.io/docs/flyctl/install/) to deploy (issue #15)
 
 ## Local development
 
@@ -150,12 +151,28 @@ automatically.
 
 ```bash
 make test   # backend unit + frontend unit
+make e2e    # Playwright journey against the Compose stack
 make lint   # ruff, mypy, eslint, tsc --noEmit
 make fmt    # ruff and Prettier
 ```
 
-The test strategy is in `_docs/testing.md`. Playwright end-to-end tests arrive
-with issue #14.
+The test strategy is in `_docs/testing.md`.
+
+The end-to-end suite in `e2e/` drives three browser contexts — host, guest A,
+and guest B — through sign-up, a capacity-1 booking, the waitlist, promotion
+after a cancellation, and host check-in. `make e2e` drops the database volume,
+rebuilds the image, waits for `/healthz`, runs the suite, and tears the stack
+down again even when a test fails.
+
+To run the same suite against an environment that is already running:
+
+```bash
+cd e2e && npm ci && npx playwright install chromium   # first time only
+E2E_BASE_URL=http://localhost:8080 make e2e
+```
+
+Failures keep a trace, a screenshot, and a video in `e2e/test-results/`, and CI
+uploads them as the `playwright-artifacts` artifact.
 
 ## API contract
 
@@ -175,12 +192,83 @@ supplies its own test settings.
 
 ## Deployment
 
-| Environment | Trigger | URL |
-| --- | --- | --- |
-| dev | push to `main` | _to be added_ |
-| prod | manual promotion of a tested image | _to be added_ |
+| Environment | Fly app | URL | Trigger |
+| --- | --- | --- | --- |
+| dev | `openseat-dev` | <https://openseat-dev.fly.dev> | manual: `make fly-deploy ENV=dev` |
+| prod | `openseat-prod` | <https://openseat-prod.fly.dev> | promotion of a tested image |
 
-Images are tagged `YYYYMMDD-HHMMSS-shortsha` and promoted, never rebuilt.
+Push-to-main automation for dev arrives with issue #16; until then both
+environments are deployed by hand with the commands below.
+
+Both apps run the image built from the root `Dockerfile` (issue #13) in region
+`fra`, serve HTTPS on internal port 8080 with one machine kept warm
+(`min_machines_running = 1`), and each has its own Fly Managed Postgres cluster
+and its own secrets. The configuration lives in `deploy/fly/` — `dev.fly.toml`
+and `prod.fly.toml` — with the non-database secrets in the git-ignored
+`deploy/fly/<env>.secrets` files (template: `deploy/fly/secrets.example`).
+`DATABASE_URL`, `SESSION_SECRET`, `APP_ENV`, and `APP_VERSION` are Fly secrets
+per app; nothing sensitive is in `fly.toml`, in git, or in the image.
+
+### First deploy
+
+```bash
+flyctl auth login       # once per machine: https://fly.io/docs/flyctl/install/
+
+cp deploy/fly/secrets.example deploy/fly/dev.secrets   # fill in real values
+make fly-create         # create openseat-dev and openseat-prod
+make fly-db             # create and attach a Managed Postgres cluster each
+make fly-secrets        # apply deploy/fly/<env>.secrets
+make fly-deploy ENV=dev # build the Dockerfile and release dev
+make fly-verify         # GET /healthz on both public URLs
+```
+
+Migrations run as the Fly release command (`alembic upgrade head`) in a
+temporary machine before each release starts; a failing migration fails the
+deploy. `/healthz` then reports `status: ok`, `database: available`, and the
+deployed `APP_VERSION`.
+
+Seed data is **dev only** and manual, after the deploy:
+
+```bash
+flyctl ssh console -a openseat-dev -C "/app/backend/.venv/bin/python -m app.seed"
+```
+
+The seed refuses to run when `APP_ENV=production`, so it cannot touch prod.
+
+### Promote and roll back
+
+Every release records the image it deployed:
+
+```bash
+make fly-releases ENV=dev                       # list releases with image tags
+make fly-deploy ENV=prod                        # same Dockerfile, prod config
+IMAGE=registry.fly.io/.../deployment-… \
+  make fly-rollback ENV=prod                    # redeploy the previous image
+```
+
+`make fly-rollback` looks up the previous release's image and redeploys it —
+no rebuild. Rollback reverts the image only: secrets and configuration stay
+as they are, and migrations are not reversed, so a migration that needs to be
+undone must be fixed forward with a new migration.
+
+Images are tagged `YYYYMMDD-HHMMSS-shortsha` and promoted, never rebuilt;
+issue #16 automates that through GHCR. Set `FLY_DRY_RUN=1` to print any
+`scripts/fly.py` command without executing it.
+
+### Cost expectation
+
+While both environments run, expect roughly **$85/month** at current
+(<https://fly.io/pricing>) prices:
+
+| Item | Quantity | Price |
+| --- | --- | --- |
+| shared-cpu-1x, 512 MB app machine | 2 | ≈ $4/month each |
+| Managed Postgres (Basic, includes HA + backups) | 2 | $38/month each |
+| Managed Postgres storage | 10 GB start per cluster | $0.28/GB/month |
+
+`fly scale count 0 -a <app>` stops an app's machine, and deleting an unused
+cluster stops its charges. Custom domains and multi-region are out of scope
+for v1.
 
 ## Observability
 

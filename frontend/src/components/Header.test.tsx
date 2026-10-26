@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { Header } from './Header'
+import { AuthProvider } from './AuthProvider'
 
 const activeCases = [
   ['/', 'Browse'],
@@ -21,7 +22,9 @@ const activeCases = [
 function renderHeader(path = '/', user: { displayName: string } | null = null) {
   return render(
     <MemoryRouter initialEntries={[path]}>
-      <Header user={user} />
+      <AuthProvider>
+        <Header user={user} />
+      </AuthProvider>
     </MemoryRouter>,
   )
 }

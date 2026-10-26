@@ -162,7 +162,7 @@ describe('sessions', () => {
       await loginAs(HOST_EMAIL)
       return mockApi.sessions.roster(created.id)
     })()
-    expect(roster.find((entry) => entry.id === booking.id)).toBeUndefined()
+    expect(roster.find((entry) => entry.bookingId === booking.id)).toBeUndefined()
   })
 })
 
@@ -229,11 +229,11 @@ describe('capacity and waitlist', () => {
 
     await loginAs(HOST_EMAIL)
     const roster = await mockApi.sessions.roster(created.id)
-    const promoted = roster.find((entry) => entry.userDisplayName === 'Waiter One')
-    const stillWaiting = roster.find((entry) => entry.userDisplayName === 'Waiter Two')
+    const promoted = roster.find((entry) => entry.displayName === 'Waiter One')
+    const stillWaiting = roster.find((entry) => entry.displayName === 'Waiter Two')
 
     expect(promoted?.status).toBe('confirmed')
-    expect(promoted?.promotedAt).toBeDefined()
+    expect(promoted?.waitlistPosition).toBeUndefined()
     expect(stillWaiting?.status).toBe('waitlisted')
     expect(stillWaiting?.waitlistPosition).toBe(1)
   })
@@ -252,7 +252,7 @@ describe('capacity and waitlist', () => {
     await loginAs(HOST_EMAIL)
     const roster = await mockApi.sessions.roster(created.id)
     expect(roster).toHaveLength(1)
-    expect(roster[0].userDisplayName).toBe('Guest Gale')
+    expect(roster[0].displayName).toBe('Guest Gale')
   })
 })
 

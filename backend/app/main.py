@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
+from pathlib import Path
+from typing import Any
+
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
@@ -21,6 +26,9 @@ _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _CSRF_HEADER = "X-Requested-With"
 _CSRF_VALUE = "openseat"
 
+# Path to the built frontend (set at runtime in production)
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+
 
 def _check_database(settings: Settings) -> None:
     if settings.app_env == "test":
@@ -33,6 +41,20 @@ def _check_database(settings: Settings) -> None:
             connection.execute(text("SELECT 1"))
     except Exception as exc:
         raise RuntimeError(f"Database is unreachable: {exc}") from exc
+
+
+class SPAStaticFiles(StaticFiles):
+    """StaticFiles that falls back to index.html for non-API routes."""
+
+    async def get_response(self, path: str, scope: MutableMapping[str, Any]) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except Exception:
+            # Fall back to index.html for client-side routing
+            # but only for non-API paths
+            if not path.startswith("api/"):
+                return await super().get_response("index.html", scope)
+            raise
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -75,6 +97,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(bookings_router)
     app.include_router(me_bookings_router)
     app.include_router(booking_item_router)
+
+    # Serve the built frontend whenever it is present. The container always
+    # ships `dist/`, so a dev Fly app works without Vite; tests never serve it.
+    if resolved.app_env != "test" and FRONTEND_DIST.exists():
+        # Mount static assets with long cache
+        app.mount(
+            "/assets",
+            StaticFiles(directory=FRONTEND_DIST / "assets"),
+            name="assets",
+        )
+        # Serve other static files and fallback to index.html for SPA routes
+        app.mount(
+            "/",
+            SPAStaticFiles(directory=FRONTEND_DIST, html=True),
+            name="spa",
+        )
+
     return app
 
 

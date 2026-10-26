@@ -1,0 +1,52 @@
+# Dependencies
+node_modules
+.venv
+__pycache__
+*.pyc
+
+# Git
+.git
+.gitignore
+
+# Tests
+**/tests
+**/*.test.ts
+**/*.test.tsx
+**/test_*.py
+**/*_test.py
+
+# Build artifacts
+dist
+build
+*.egg-info
+
+# Caches
+.cache
+.eslintcache
+.pytest_cache
+.mypy_cache
+.ruff_cache
+coverage
+.nyc_output
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI
+.github
+.gitlab-ci.yml

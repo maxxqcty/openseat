@@ -1,9 +1,9 @@
 /**
  * In-memory implementation of the service layer.
  *
- * Used in development and tests until the real HTTP client lands in #12. The
- * mock owns its module-level data, enforces the domain rules from
- * `_docs/spec.md` §4, and returns the same error codes as the API contract.
+ * Used when `VITE_API_MODE=mock` and by the frontend test suite. The mock owns
+ * its module-level data, enforces the domain rules from `_docs/spec.md` §4, and
+ * returns the same error codes as the API contract in `http.ts`.
  */
 
 import { ApiError } from './types'
@@ -11,6 +11,7 @@ import type {
   Api,
   Booking,
   CreateSessionInput,
+  RosterEntry,
   Session,
   SessionDetail,
   User,
@@ -29,10 +30,15 @@ interface MockUser extends User {
   password: string
 }
 
+/** Bookings carry a display name internally; the wire type never exposes it. */
+interface MockBooking extends Booking {
+  userDisplayName: string
+}
+
 interface MockState {
   users: MockUser[]
   sessions: Session[]
-  bookings: Booking[]
+  bookings: MockBooking[]
   currentUserId: string | null
 }
 
@@ -87,7 +93,7 @@ function createSeedState(): MockState {
     status: 'scheduled',
     createdAt: new Date().toISOString(),
   }
-  const booked: Booking = {
+  const booked: MockBooking = {
     id: nextId('b'),
     sessionId: fullSession.id,
     userId: guest.id,
@@ -125,7 +131,8 @@ function currentUser(): MockUser | null {
 function requireUser(): MockUser {
   const user = currentUser()
   if (!user) {
-    throw new ApiError('forbidden', 'Sign in required')
+    // Mirrors the API, which answers 401 when there is no session cookie.
+    throw new ApiError('unauthorized', 'Sign in required')
   }
   return user
 }
@@ -138,7 +145,7 @@ function findSession(sessionId: string): Session {
   return session
 }
 
-function findBooking(bookingId: string): Booking {
+function findBooking(bookingId: string): MockBooking {
   const booking = state.bookings.find((candidate) => candidate.id === bookingId)
   if (!booking) {
     throw new ApiError('not_found', 'Booking not found')
@@ -155,7 +162,7 @@ function occupiesSeat(booking: Booking): boolean {
   return booking.status === 'confirmed' || booking.status === 'checked_in'
 }
 
-function activeBookings(sessionId: string): Booking[] {
+function activeBookings(sessionId: string): MockBooking[] {
   return state.bookings
     .filter(
       (booking) =>
@@ -171,7 +178,7 @@ function compareBookings(left: Booking, right: Booking): number {
   return left.id.localeCompare(right.id)
 }
 
-function waitlistOrder(sessionId: string): Booking[] {
+function waitlistOrder(sessionId: string): MockBooking[] {
   return state.bookings
     .filter(
       (booking) =>
@@ -204,6 +211,25 @@ function promoteOldestWaiter(sessionId: string): void {
   oldest.promotedAt = new Date().toISOString()
   delete oldest.waitlistPosition
   assignWaitlistPositions(sessionId)
+}
+
+/** Reject a roster row that is no longer active; the API never returns these. */
+function rosterStatus(booking: MockBooking): RosterEntry['status'] {
+  if (booking.status === 'cancelled') {
+    throw new Error('cancelled bookings are not part of a roster')
+  }
+  return booking.status
+}
+
+function toRosterEntry(booking: MockBooking): RosterEntry {
+  return {
+    bookingId: booking.id,
+    displayName: booking.userDisplayName,
+    status: rosterStatus(booking),
+    createdAt: booking.createdAt,
+    checkedInAt: booking.checkedInAt,
+    waitlistPosition: booking.waitlistPosition,
+  }
 }
 
 function sessionDetail(session: Session): SessionDetail {
@@ -414,7 +440,7 @@ const sessions: Api['sessions'] = {
       )
     }
 
-    const booking: Booking = {
+    const booking: MockBooking = {
       id: nextId('b'),
       sessionId,
       userId: user.id,
@@ -440,7 +466,7 @@ const sessions: Api['sessions'] = {
       throw new ApiError('forbidden', 'You can only cancel your own booking')
     }
     if (booking.status === 'cancelled') {
-      return booking
+      return
     }
     if (booking.status === 'checked_in') {
       validationError('A checked-in booking cannot be cancelled')
@@ -455,8 +481,6 @@ const sessions: Api['sessions'] = {
     } else {
       assignWaitlistPositions(booking.sessionId)
     }
-
-    return booking
   },
 
   async roster(sessionId) {
@@ -466,17 +490,18 @@ const sessions: Api['sessions'] = {
       throw new ApiError('forbidden', 'Only the host can view the roster')
     }
 
-    const order: Record<Booking['status'], number> = {
+    const order: Record<RosterEntry['status'], number> = {
       confirmed: 0,
       checked_in: 1,
       waitlisted: 2,
-      cancelled: 3,
     }
 
-    return activeBookings(sessionId).sort((left, right) => {
-      const byStatus = order[left.status] - order[right.status]
-      return byStatus !== 0 ? byStatus : compareBookings(left, right)
-    })
+    return activeBookings(sessionId)
+      .sort((left, right) => {
+        const byStatus = order[rosterStatus(left)] - order[rosterStatus(right)]
+        return byStatus !== 0 ? byStatus : compareBookings(left, right)
+      })
+      .map(toRosterEntry)
   },
 
   async checkIn(bookingId) {
@@ -507,4 +532,29 @@ const sessions: Api['sessions'] = {
   },
 }
 
-export const mockApi: Api = { auth, sessions }
+const me: Api['me'] = {
+  async bookings() {
+    const user = requireUser()
+    return state.bookings
+      .filter((booking) => booking.userId === user.id)
+      .map((booking) => ({
+        id: booking.id,
+        sessionId: booking.sessionId,
+        userId: booking.userId,
+        status: booking.status,
+        createdAt: booking.createdAt,
+        checkedInAt: booking.checkedInAt,
+        promotedAt: booking.promotedAt,
+        waitlistPosition: booking.waitlistPosition,
+        session: findSession(booking.sessionId),
+      }))
+      .sort(
+        (left, right) =>
+          left.session.startsAt.localeCompare(right.session.startsAt) ||
+          left.createdAt.localeCompare(right.createdAt) ||
+          left.id.localeCompare(right.id),
+      )
+  },
+}
+
+export const mockApi: Api = { auth, sessions, me }

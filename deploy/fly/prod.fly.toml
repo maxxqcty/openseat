@@ -1,0 +1,41 @@
+# Fly.io configuration for the production environment (app `openseat-prod`).
+#
+# Same shape as dev.fly.toml: port 8080, forced HTTPS, one warm machine, and a
+# release command that runs migrations. Secrets live in
+# `deploy/fly/prod.secrets` (git-ignored) and are applied with `make fly-secrets`.
+#
+# Promote an image that already passed dev — never rebuild for prod:
+#
+#     make fly-deploy ENV=prod IMAGE=registry.fly.io/openseat-dev/image:deployment-…
+#
+# Rollback is the same command with a previous image (`make fly-rollback`).
+
+app = "openseat-prod"
+primary_region = "fra"
+
+[deploy]
+  # Fails the deploy when migrations fail; the entrypoint runs this in a
+  # temporary machine and exits with its status.
+  release_command = "alembic upgrade head"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # One machine stays warm for the demo: idle Machines may be stopped, but
+  # `min_machines_running = 1` always keeps one running in the primary region.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "10s"
+    timeout = "5s"
+    grace_period = "30s"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"

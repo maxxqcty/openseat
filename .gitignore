@@ -25,6 +25,7 @@ blob-report/
 !.env.example
 *.pem
 *.key
+deploy/fly/*.secrets
 
 # Databases and dumps
 *.db
