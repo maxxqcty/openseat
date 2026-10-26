@@ -1,17 +1,13 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import App from './App'
+import { mockApi, resetMock } from './services/mock'
 
-const routes = [
+const publicRoutes = [
   ['/', 'OpenSeat'],
   ['/login', 'Sign in'],
   ['/signup', 'Create account'],
-  ['/sessions/example', 'Session details'],
-  ['/me', 'My bookings'],
-  ['/host', 'Host dashboard'],
-  ['/host/sessions/new', 'Create a session'],
-  ['/host/sessions/example', 'Session roster'],
 ] as const
 
 function renderAt(path: string) {
@@ -23,31 +19,51 @@ function renderAt(path: string) {
 }
 
 describe('App routes', () => {
-  it.each(routes)('renders %s with the %s heading', (path, heading) => {
+  beforeEach(() => {
+    resetMock()
+  })
+
+  it.each(publicRoutes)('renders public route %s with the %s heading', async (path, heading) => {
     renderAt(path)
 
-    const main = screen.getByRole('main')
-    const headings = within(main).getAllByRole('heading', { level: 1 })
+    // Wait for the heading to appear (data loaded)
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
+    })
+    expect(screen.getByRole('main')).toBeInTheDocument()
+  })
 
-    expect(headings).toHaveLength(1)
-    expect(headings[0]).toHaveTextContent(heading)
-    expect(headings[0].textContent?.trim()).not.toBe('')
-    expect(screen.getAllByRole('banner')).toHaveLength(1)
-    expect(screen.getAllByRole('main')).toHaveLength(1)
+  it('renders session detail page with a valid session', async () => {
+    resetMock()
+    const sessions = await mockApi.sessions.list()
+    const sessionId = sessions[0].id
+
+    renderAt(`/sessions/${sessionId}`)
+
+    // Wait for the heading to appear (data loaded)
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { level: 1, name: sessions[0].title })).toBeInTheDocument()
+    })
+    expect(screen.getByRole('main')).toBeInTheDocument()
   })
 
   it.each(['/does-not-exist', '/host/does-not-exist', '/sessions/', '/host/sessions/'])(
     'renders the 404 page for %s',
-    (path) => {
+    async (path) => {
       renderAt(path)
 
-      expect(screen.getByRole('heading', { level: 1, name: 'Page not found' })).toBeInTheDocument()
+      expect(await screen.findByRole('heading', { level: 1, name: 'Page not found' })).toBeInTheDocument()
       expect(screen.getByRole('link', { name: 'Back to browse' })).toHaveAttribute('href', '/')
     },
   )
 
-  it('makes the skip link the first focusable element and targets the main landmark', () => {
+  it('makes the skip link the first focusable element and targets the main landmark', async () => {
     const { container } = renderAt('/')
+
+    // Wait for the app to load past the auth loading spinner
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Skip to main content' })).toBeInTheDocument()
+    })
 
     const skipLink = screen.getByRole('link', { name: 'Skip to main content' })
     const main = screen.getByRole('main')

@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
+import { useAuthContext } from './AuthProvider'
 
 export interface HeaderUser {
   displayName: string
@@ -78,6 +79,12 @@ interface AuthActionsProps {
 }
 
 function AuthActions({ user, onNavigate }: AuthActionsProps) {
+  const { logout } = useAuthContext()
+  const handleLogout = async () => {
+    await logout()
+    onNavigate?.()
+  }
+
   if (user) {
     return (
       <div className="flex flex-col gap-1 md:flex-row md:items-center">
@@ -85,6 +92,7 @@ function AuthActions({ user, onNavigate }: AuthActionsProps) {
         <button
           type="button"
           className="rounded-md px-3 py-2 text-left text-sm font-medium text-muted transition-colors hover:bg-muted/10 hover:text-text md:text-center"
+          onClick={handleLogout}
         >
           Sign out
         </button>
