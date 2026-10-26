@@ -46,6 +46,24 @@ jobs:
       - name: Test
         run: uv run pytest
 
+  contract:
+    name: Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.5"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Check OpenAPI contract
+        run: uv run python ../scripts/check_contract.py
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

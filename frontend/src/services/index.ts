@@ -12,6 +12,7 @@
  */
 
 export * from './types'
+export * from './api-types'
 
 // Development default: mock object (re-exported from ./mock)
 export type { Api } from './mock'

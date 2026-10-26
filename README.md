@@ -135,6 +135,22 @@ make fmt    # ruff and Prettier
 The test strategy is in `_docs/testing.md`. Playwright end-to-end tests arrive
 with issue #14.
 
+## API contract
+
+`openapi.yaml` at the repository root is the canonical API contract. The
+FastAPI app must expose every path and method it documents, and
+`frontend/src/services/api-types.ts` mirrors its request and response schemas.
+CI fails when either side adds or removes an endpoint without updating the
+contract; schema-level differences (success status and request body) are
+warnings in v1.
+
+```bash
+cd backend && uv run python ../scripts/check_contract.py
+```
+
+The check runs offline: it imports the app, never connects to a database, and
+supplies its own test settings.
+
 ## Deployment
 
 | Environment | Trigger | URL |

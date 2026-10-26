@@ -104,15 +104,18 @@ POST /api/bookings/{id}/check-in
 
 ## Contract policy
 
-`openapi.yaml` at the repository root is generated from the frontend service
-layer and is the target the backend implements. FastAPI also generates a schema
-at `/openapi.json`.
+`openapi.yaml` at the repository root is canonical. It documents every
+endpoint, the error shape, the session cookie, and the CSRF header. The
+types in `frontend/src/services/api-types.ts` mirror its schemas, and FastAPI
+also generates a schema at `/openapi.json`.
 
 CI runs `scripts/check_contract.py`, which asserts that every path and method in
 `openapi.yaml` exists in the generated schema and vice versa. Schema-level
-differences are reported as warnings in v1; the path/method mismatch is
-blocking. This catches the common failure where the frontend calls an endpoint
-the backend never implemented, without pretending to be a full contract test.
+differences (success status or request body) are reported as warnings in v1;
+the path/method mismatch is blocking. This catches the common failure where one
+side adds an endpoint the other never implemented, without pretending to be a
+full contract test. Run it locally with
+`cd backend && uv run python ../scripts/check_contract.py`.
 
 If the team decides to drop `openapi.yaml`, delete the check and document the
 decision. Do not keep a contract that nobody verifies.

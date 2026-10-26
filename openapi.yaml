@@ -1,0 +1,645 @@
+openapi: 3.1.0
+info:
+  title: OpenSeat API
+  version: 1.0.0
+  description: >
+    Booking and waitlist API for small workshops. This document is canonical:
+    the FastAPI app must expose every path and method listed here, and the
+    frontend service types mirror these schemas. CI runs
+    `scripts/check_contract.py` to catch drift.
+
+servers:
+  - url: /
+    description: Same-origin deployment; Vite proxies /api in development.
+
+tags:
+  - name: auth
+    description: Accounts and cookie sessions.
+  - name: sessions
+    description: Workshop sessions published by hosts.
+  - name: bookings
+    description: Seats, the waitlist, the roster, and check-in.
+  - name: health
+    description: Liveness and database status.
+
+paths:
+  /api/auth/register:
+    post:
+      tags: [auth]
+      summary: Create an account and start a session
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: The new account, with the session cookie set.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublic'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: The email is already registered (case-insensitive).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: Sign in and set the sanitised session cookie
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '204':
+          description: >
+            Signed in. Sets the HttpOnly, SameSite=Lax `openseat_session`
+            cookie; `Secure` is added when APP_ENV=production.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: More than 10 failed attempts per minute for this email and IP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: Clear the session cookie
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '204':
+          description: The session cookie was cleared.
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/auth/me:
+    get:
+      tags: [auth]
+      summary: Return the signed-in user
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: The signed-in user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/sessions:
+    get:
+      tags: [sessions]
+      summary: List scheduled sessions that have not ended
+      security: []
+      responses:
+        '200':
+          description: Upcoming sessions ordered by start time.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SessionPublic'
+    post:
+      tags: [sessions]
+      summary: Publish a session with the caller as host
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/CsrfHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreate'
+      responses:
+        '201':
+          description: The scheduled session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/sessions/{session_id}:
+    get:
+      tags: [sessions]
+      summary: Session detail with seat counts and the caller's booking
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Session detail. `my_booking` is null when signed out.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /api/sessions/{session_id}/cancel:
+    post:
+      tags: [sessions]
+      summary: Cancel a session and every active booking. Host-only.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          description: The cancelled session. Repeat calls stay 200.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/sessions/{session_id}/bookings:
+    get:
+      tags: [bookings]
+      summary: Host roster grouped into confirmed, waitlisted, and checked in
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: The roster, without email addresses.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Roster'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [bookings]
+      summary: Book a seat, or join the waitlist when the session is full
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '201':
+          description: Confirmed, or waitlisted with a 1-based position.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Duplicate active booking, or a cancelled or ended session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/bookings/{booking_id}:
+    delete:
+      tags: [bookings]
+      summary: Cancel the caller's booking, promoting the oldest waiter. Owner-only.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '204':
+          description: Cancelled, or already cancelled (idempotent).
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: A checked-in booking cannot be cancelled by the guest.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/bookings/{booking_id}/check-in:
+    post:
+      tags: [bookings]
+      summary: Check in a confirmed guest during the check-in window. Host-only.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+        - $ref: '#/components/parameters/CsrfHeader'
+      responses:
+        '200':
+          description: Checked in. Repeat calls stay 200.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookingPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Outside the window, or the booking is not confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/me/bookings:
+    get:
+      tags: [bookings]
+      summary: Every booking for the caller, soonest session first
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Bookings with session summaries and waitlist positions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MyBookingPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /healthz:
+    get:
+      tags: [health]
+      summary: Liveness, version, and real database status
+      security: []
+      responses:
+        '200':
+          description: Health, including database connectivity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: openseat_session
+      description: >
+        Signed session token from `POST /api/auth/login`, valid for 8 hours.
+        Stored HttpOnly; never read it from JavaScript.
+
+  parameters:
+    CsrfHeader:
+      name: X-Requested-With
+      in: header
+      required: true
+      description: CSRF defence required on every mutating request.
+      schema:
+        type: string
+        enum: [openseat]
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    BookingId:
+      name: booking_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Authentication required.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Not allowed, or the CSRF header is missing.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Unknown, or not visible to the caller.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ValidationError:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, details]
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthorized
+                - forbidden
+                - not_found
+                - conflict
+                - booking_conflict
+                - validation_error
+                - rate_limited
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+
+    RegisterRequest:
+      type: object
+      required: [display_name, email, password]
+      properties:
+        display_name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+
+    UserPublic:
+      type: object
+      required: [id, email, display_name, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        display_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    SessionCreate:
+      type: object
+      required: [title, starts_at, duration_minutes, capacity, location]
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 2000
+          default: ''
+        starts_at:
+          type: string
+          format: date-time
+          description: Future start time in UTC.
+        duration_minutes:
+          type: integer
+          minimum: 15
+          maximum: 480
+        capacity:
+          type: integer
+          minimum: 1
+          maximum: 100
+        location:
+          type: string
+          minLength: 3
+          maxLength: 200
+
+    SessionPublic:
+      type: object
+      required:
+        - id
+        - host_id
+        - title
+        - description
+        - starts_at
+        - duration_minutes
+        - capacity
+        - location
+        - status
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        host_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+        duration_minutes:
+          type: integer
+        capacity:
+          type: integer
+        location:
+          type: string
+        status:
+          type: string
+          enum: [scheduled, cancelled]
+        created_at:
+          type: string
+          format: date-time
+        past:
+          type: boolean
+          default: false
+          description: Derived from starts_at plus duration_minutes; never stored.
+
+    SessionDetail:
+      allOf:
+        - $ref: '#/components/schemas/SessionPublic'
+        - type: object
+          required: [confirmed_count, checked_in_count, waitlist_count]
+          properties:
+            confirmed_count:
+              type: integer
+            checked_in_count:
+              type: integer
+            waitlist_count:
+              type: integer
+            my_booking:
+              oneOf:
+                - $ref: '#/components/schemas/BookingPublic'
+                - type: 'null'
+
+    BookingPublic:
+      type: object
+      required: [id, session_id, user_id, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [confirmed, waitlisted, cancelled, checked_in]
+        created_at:
+          type: string
+          format: date-time
+        promoted_at:
+          type: [string, 'null']
+          format: date-time
+        checked_in_at:
+          type: [string, 'null']
+          format: date-time
+        cancelled_at:
+          type: [string, 'null']
+          format: date-time
+        waitlist_position:
+          type: [integer, 'null']
+          description: 1-based when waitlisted; null otherwise.
+
+    RosterEntry:
+      type: object
+      required: [booking_id, display_name, status, created_at]
+      properties:
+        booking_id:
+          type: string
+          format: uuid
+        display_name:
+          type: string
+        status:
+          type: string
+          enum: [confirmed, waitlisted, checked_in]
+        created_at:
+          type: string
+          format: date-time
+        checked_in_at:
+          type: [string, 'null']
+          format: date-time
+        waitlist_position:
+          type: [integer, 'null']
+
+    Roster:
+      type: object
+      required: [confirmed, waitlisted, checked_in]
+      properties:
+        confirmed:
+          type: array
+          description: Ordered by booking time.
+          items:
+            $ref: '#/components/schemas/RosterEntry'
+        waitlisted:
+          type: array
+          description: Ordered by waitlist position.
+          items:
+            $ref: '#/components/schemas/RosterEntry'
+        checked_in:
+          type: array
+          description: Ordered by check-in time.
+          items:
+            $ref: '#/components/schemas/RosterEntry'
+
+    MyBookingPublic:
+      allOf:
+        - $ref: '#/components/schemas/BookingPublic'
+        - type: object
+          required: [session]
+          properties:
+            session:
+              $ref: '#/components/schemas/SessionPublic'
+
+    HealthResponse:
+      type: object
+      required: [status, version, database]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        version:
+          type: string
+        database:
+          type: string
+          enum: [not_configured, available, unavailable]
