@@ -4,6 +4,7 @@ import { useAuth, useCreateSession } from '../hooks'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { ErrorState } from '../components/ErrorState'
+import { toDateTimeInputValue } from '../lib/date'
 
 export function CreateSessionPage() {
   const { user, loading: authLoading } = useAuth()
@@ -48,12 +49,19 @@ export function CreateSessionPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setFormError(null)
+    // The input holds wall-clock time in the browser's zone; the API stores UTC,
+    // so send an absolute instant instead of the raw "YYYY-MM-DDTHH:mm" string.
+    const startDate = new Date(startsAt || defaultStartsAt)
+    if (Number.isNaN(startDate.getTime())) {
+      setFormError('Choose a valid start date and time')
+      return
+    }
     setSubmitting(true)
     try {
       const session = await create({
         title: title.trim(),
         description: description.trim() || undefined,
-        startsAt,
+        startsAt: startDate.toISOString(),
         durationMinutes: parseInt(durationMinutes, 10),
         capacity: parseInt(capacity, 10),
         location: location.trim(),
@@ -66,11 +74,12 @@ export function CreateSessionPage() {
     }
   }
 
-  // Default to tomorrow at 10:00 AM local time
+  // Default to tomorrow at 10:00 AM in the browser's zone, formatted for a
+  // datetime-local input (which must not be converted to UTC).
   const tomorrow = new Date()
   tomorrow.setDate(tomorrow.getDate() + 1)
   tomorrow.setHours(10, 0, 0, 0)
-  const defaultStartsAt = tomorrow.toISOString().slice(0, 16)
+  const defaultStartsAt = toDateTimeInputValue(tomorrow)
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">

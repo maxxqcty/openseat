@@ -150,12 +150,28 @@ automatically.
 
 ```bash
 make test   # backend unit + frontend unit
+make e2e    # Playwright journey against the Compose stack
 make lint   # ruff, mypy, eslint, tsc --noEmit
 make fmt    # ruff and Prettier
 ```
 
-The test strategy is in `_docs/testing.md`. Playwright end-to-end tests arrive
-with issue #14.
+The test strategy is in `_docs/testing.md`.
+
+The end-to-end suite in `e2e/` drives three browser contexts — host, guest A,
+and guest B — through sign-up, a capacity-1 booking, the waitlist, promotion
+after a cancellation, and host check-in. `make e2e` drops the database volume,
+rebuilds the image, waits for `/healthz`, runs the suite, and tears the stack
+down again even when a test fails.
+
+To run the same suite against an environment that is already running:
+
+```bash
+cd e2e && npm ci && npx playwright install chromium   # first time only
+E2E_BASE_URL=http://localhost:8080 make e2e
+```
+
+Failures keep a trace, a screenshot, and a video in `e2e/test-results/`, and CI
+uploads them as the `playwright-artifacts` artifact.
 
 ## API contract
 

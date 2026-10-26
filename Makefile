@@ -3,7 +3,7 @@ PYTHON ?= python
 BACKEND := backend
 FRONTEND := frontend
 
-.PHONY: install dev test lint fmt seed seed-reset docker-up docker-down docker-build
+.PHONY: install dev test e2e lint fmt seed seed-reset docker-up docker-down docker-build
 
 install:
 	cd $(BACKEND) && uv sync
@@ -15,6 +15,9 @@ dev:
 test:
 	cd $(BACKEND) && uv run pytest
 	cd $(FRONTEND) && npm run test
+
+e2e:
+	$(PYTHON) scripts/e2e.py
 
 lint:
 	cd $(BACKEND) && uv run ruff check .
