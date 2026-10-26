@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
@@ -14,6 +15,8 @@ from sqlalchemy.orm import Session as DbSession
 from app.errors import ApiError
 from app.models.bookings import (
     OCCUPIED_STATUSES,
+    STATUS_CANCELLED,
+    STATUS_CHECKED_IN,
     STATUS_CONFIRMED,
     STATUS_WAITLISTED,
     Booking,
@@ -21,6 +24,8 @@ from app.models.bookings import (
 from app.models.sessions import STATUS_CANCELLED as SESSION_CANCELLED
 from app.models.sessions import Session
 from app.services.sessions import is_past, utc_now
+
+logger = logging.getLogger(__name__)
 
 
 def status_for_occupancy(*, occupied: int, capacity: int) -> str:
@@ -101,6 +106,72 @@ def list_bookings_for_user(
         ),
     ).all()
     return [(booking, session) for booking, session in rows]
+
+
+def _promote_oldest_waiter(
+    db: DbSession,
+    session_id: uuid.UUID,
+    *,
+    now: datetime,
+) -> Booking | None:
+    """Move the oldest waitlisted booking to confirmed, if any."""
+    promoted = db.scalar(
+        select(Booking)
+        .where(
+            Booking.session_id == session_id,
+            Booking.status == STATUS_WAITLISTED,
+        )
+        .order_by(*waitlist_order())
+        .limit(1)
+        .with_for_update(),
+    )
+    if promoted is None:
+        return None
+    promoted.status = STATUS_CONFIRMED
+    promoted.promoted_at = now
+    return promoted
+
+
+def cancel_booking(
+    db: DbSession,
+    *,
+    booking_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Cancel the caller's booking and promote the oldest waiter if a seat frees."""
+    booking = db.get(Booking, booking_id)
+    if booking is None or booking.user_id != user_id:
+        raise ApiError(404, "not_found", "Booking not found")
+
+    session = db.scalar(
+        select(Session).where(Session.id == booking.session_id).with_for_update(),
+    )
+    if session is None:
+        raise ApiError(404, "not_found", "Booking not found")
+    db.refresh(booking)
+
+    if booking.status == STATUS_CANCELLED:
+        return
+    if booking.status == STATUS_CHECKED_IN:
+        raise ApiError(409, "conflict", "Checked-in bookings cannot be cancelled")
+
+    now = utc_now()
+    freed_seat = booking.status == STATUS_CONFIRMED
+    booking.status = STATUS_CANCELLED
+    booking.cancelled_at = now
+
+    if freed_seat:
+        promoted = _promote_oldest_waiter(db, session.id, now=now)
+        if promoted is not None:
+            logger.info(
+                "waitlist_promoted",
+                extra={
+                    "session_id": str(session.id),
+                    "booking_id": str(promoted.id),
+                },
+            )
+
+    db.commit()
 
 
 def book_session(

@@ -21,6 +21,7 @@ from app.services.sessions import is_past
 
 router = APIRouter(prefix="/api/sessions", tags=["bookings"])
 me_router = APIRouter(prefix="/api/me", tags=["bookings"])
+delete_router = APIRouter(prefix="/api/bookings", tags=["bookings"])
 
 
 def _my_booking(
@@ -57,6 +58,20 @@ def create_booking(
     return BookingPublic.model_validate(booking).model_copy(
         update={"waitlist_position": position},
     )
+
+
+@delete_router.delete(
+    "/{booking_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def delete_booking(
+    booking_id: uuid.UUID,
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[DbSession, Depends(get_db)],
+) -> None:
+    """Cancel the caller's booking, promoting the oldest waiter if a seat frees."""
+    booking_service.cancel_booking(db, booking_id=booking_id, user_id=user.id)
 
 
 @me_router.get("/bookings", response_model=list[MyBookingPublic])
