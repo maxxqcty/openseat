@@ -194,10 +194,11 @@ supplies its own test settings.
 
 | Environment | URL | Trigger |
 | --- | --- | --- |
-| prod/demo | `https://<service>.onrender.com` | merge to `main` after checks pass |
+| prod/demo | <https://openseat-1x8l.onrender.com> | merge to `main` after checks pass |
 | local dev | <http://localhost:8080> | `docker compose up --build` |
 
-The public demo runs on [Render](https://render.com) from the root
+The public demo is live at <https://openseat-1x8l.onrender.com>, deployed on
+[Render](https://render.com) from the root
 `render.yaml` Blueprint: one free web service (`openseat`) builds the root
 `Dockerfile` in Frankfurt and serves HTTPS, and one free Postgres database
 (`openseat-db`) backs it. Render generates `SESSION_SECRET` and injects
@@ -226,7 +227,7 @@ Free-tier limits shape the deployment:
 
 ```bash
 make render-validate
-make render-verify URL=https://<service>.onrender.com
+make render-verify URL=https://openseat-1x8l.onrender.com
 ```
 
 Migrations run in the container entrypoint before the server starts. `/healthz`
