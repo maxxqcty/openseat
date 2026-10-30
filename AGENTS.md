@@ -84,7 +84,7 @@ Read only what the task needs.
 | Frontend | Node 22, React, TypeScript, Vite, React Router, Tailwind |
 | Tests | pytest, httpx, React Testing Library, Playwright |
 | Container | Multi-stage Dockerfile, non-root, healthcheck |
-| Deploy | Fly.io apps `openseat-dev` and `openseat-prod`, GHCR images |
+| Deploy | Render Blueprint: one free web service and one free Postgres |
 | Telemetry | OpenTelemetry to Grafana Cloud |
 
 ## Definition of done

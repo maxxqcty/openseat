@@ -413,7 +413,7 @@ Constraints and indexes:
 | Polling vs WebSockets | Poll every 10s | Real-time demand or >100 concurrent users |
 | Session cookie vs bearer token | HttpOnly cookie | A mobile client is added |
 | Self-hosted vs managed telemetry | Grafana Cloud | Cost or data residency changes |
-| Fly.io vs another platform | Fly.io | The day-1 deployment spike fails |
+| Hosting platform | Render | The free database expiry or cold starts are unacceptable |
 | Waitlist ordering | `created_at`, `id` | Fairness policy changes |
 | Check-in window | 2h before to end | Hosts report a different need |
 

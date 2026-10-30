@@ -89,7 +89,7 @@ way.
 | Database | PostgreSQL 16 |
 | Frontend | React, TypeScript, Vite, React Router, Tailwind |
 | Tests | pytest, httpx, React Testing Library, Playwright |
-| Deploy | Fly.io (`openseat-dev`, `openseat-prod`), GHCR images |
+| Deploy | Render Blueprint: one free web service and one free Postgres |
 | Telemetry | OpenTelemetry → Grafana Cloud |
 
 ## Prerequisites
@@ -99,7 +99,7 @@ way.
 - GNU Make
 - Docker with Compose v2 (first used by issue #13)
 - `gh` for the issue workflow
-- [`flyctl`](https://fly.io/docs/flyctl/install/) to deploy (issue #15)
+- A [Render](https://render.com) account to deploy (no CLI required)
 
 ## Local development
 
@@ -192,83 +192,80 @@ supplies its own test settings.
 
 ## Deployment
 
-| Environment | Fly app | URL | Trigger |
-| --- | --- | --- | --- |
-| dev | `openseat-dev` | <https://openseat-dev.fly.dev> | manual: `make fly-deploy ENV=dev` |
-| prod | `openseat-prod` | <https://openseat-prod.fly.dev> | promotion of a tested image |
+| Environment | URL | Trigger |
+| --- | --- | --- |
+| prod/demo | `https://<service>.onrender.com` | merge to `main` after checks pass |
+| local dev | <http://localhost:8080> | `docker compose up --build` |
 
-Push-to-main automation for dev arrives with issue #16; until then both
-environments are deployed by hand with the commands below.
+The public demo runs on [Render](https://render.com) from the root
+`render.yaml` Blueprint: one free web service (`openseat`) builds the root
+`Dockerfile` in Frankfurt and serves HTTPS, and one free Postgres database
+(`openseat-db`) backs it. Render generates `SESSION_SECRET` and injects
+`DATABASE_URL`; no secret is committed or baked into the image.
 
-Both apps run the image built from the root `Dockerfile` (issue #13) in region
-`fra`, serve HTTPS on internal port 8080 with one machine kept warm
-(`min_machines_running = 1`), and each has its own Fly Managed Postgres cluster
-and its own secrets. The configuration lives in `deploy/fly/` — `dev.fly.toml`
-and `prod.fly.toml` — with the non-database secrets in the git-ignored
-`deploy/fly/<env>.secrets` files (template: `deploy/fly/secrets.example`).
-`DATABASE_URL`, `SESSION_SECRET`, `APP_ENV`, and `APP_VERSION` are Fly secrets
-per app; nothing sensitive is in `fly.toml`, in git, or in the image.
+Free-tier limits shape the deployment:
+
+- The web service spins down after 15 minutes without traffic and takes about
+  a minute to wake, so the first request after idle is slow.
+- One free Postgres database is allowed per workspace. It has 1 GB of storage
+  and **expires 30 days after creation**, so treat it as disposable.
+- Pre-deploy commands are paid-only. The container entrypoint runs
+  `alembic upgrade head` before uvicorn, so a failed migration stops the
+  service instead of shipping a broken release.
+- Two environments would need a second paid database. Dev therefore stays
+  local; `deploy/render/README.md` documents the paid two-environment path.
 
 ### First deploy
 
-```bash
-flyctl auth login       # once per machine: https://fly.io/docs/flyctl/install/
-
-cp deploy/fly/secrets.example deploy/fly/dev.secrets   # fill in real values
-make fly-create         # create openseat-dev and openseat-prod
-make fly-db             # create and attach a Managed Postgres cluster each
-make fly-secrets        # apply deploy/fly/<env>.secrets
-make fly-deploy ENV=dev # build the Dockerfile and release dev
-make fly-verify         # GET /healthz on both public URLs
-```
-
-Migrations run as the Fly release command (`alembic upgrade head`) in a
-temporary machine before each release starts; a failing migration fails the
-deploy. `/healthz` then reports `status: ok`, `database: available`, and the
-deployed `APP_VERSION`.
-
-Seed data is **dev only** and manual, after the deploy:
+1. Push the repository to GitHub.
+2. In the Render Dashboard choose **New > Blueprint**, connect the repository,
+   and apply `render.yaml` on `main`.
+3. Render creates the database, generates the secret, builds the image, and
+   waits for `/healthz`.
+4. Verify the deploy:
 
 ```bash
-flyctl ssh console -a openseat-dev -C "/app/backend/.venv/bin/python -m app.seed"
+make render-validate
+make render-verify URL=https://<service>.onrender.com
 ```
 
-The seed refuses to run when `APP_ENV=production`, so it cannot touch prod.
+Migrations run in the container entrypoint before the server starts. `/healthz`
+then reports `status: ok`, `database: available`, and the deployed commit in
+`version` (from Render's `RENDER_GIT_COMMIT`).
 
-### Promote and roll back
+`scripts/render.py validate` checks the Blueprint offline;
+`scripts/render.py verify` polls the public URL for up to three minutes to
+cover a cold start. Set `EXPECTED_VERSION=<sha>` to assert a specific deploy.
 
-Every release records the image it deployed:
+Seed data is local only:
 
 ```bash
-make fly-releases ENV=dev                       # list releases with image tags
-make fly-deploy ENV=prod                        # same Dockerfile, prod config
-IMAGE=registry.fly.io/.../deployment-… \
-  make fly-rollback ENV=prod                    # redeploy the previous image
+docker compose up --build
+APP_ENV=development make seed
 ```
 
-`make fly-rollback` looks up the previous release's image and redeploys it —
-no rebuild. Rollback reverts the image only: secrets and configuration stay
-as they are, and migrations are not reversed, so a migration that needs to be
-undone must be fixed forward with a new migration.
+The seed refuses to run when `APP_ENV=production`, so it cannot touch the
+Render database.
 
-Images are tagged `YYYYMMDD-HHMMSS-shortsha` and promoted, never rebuilt;
-issue #16 automates that through GHCR. Set `FLY_DRY_RUN=1` to print any
-`scripts/fly.py` command without executing it.
+### Deploys and rollback
+
+Merging to `main` triggers a deploy once the repository's GitHub checks pass
+(`autoDeployTrigger: checksPass`). If Render does not detect the checks, change
+the setting to `commit` in the dashboard.
+
+Render builds the Dockerfile from the selected commit; the free tier does not
+support promoting a prebuilt image. To roll back, open **Deploys**, pick the
+previous successful deploy, and choose **Rollback**. Rollback reverts code,
+but not environment variables, and does not reverse migrations, so fix a bad
+migration forward with a new one.
 
 ### Cost expectation
 
-While both environments run, expect roughly **$85/month** at current
-(<https://fly.io/pricing>) prices:
-
-| Item | Quantity | Price |
-| --- | --- | --- |
-| shared-cpu-1x, 512 MB app machine | 2 | ≈ $4/month each |
-| Managed Postgres (Basic, includes HA + backups) | 2 | $38/month each |
-| Managed Postgres storage | 10 GB start per cluster | $0.28/GB/month |
-
-`fly scale count 0 -a <app>` stops an app's machine, and deleting an unused
-cluster stops its charges. Custom domains and multi-region are out of scope
-for v1.
+The demo costs **$0** on Render's free tier: 750 instance hours per month for
+the web service plus one free Postgres database. Keeping the database beyond
+30 days, or running a second environment, requires a paid Postgres plan. See
+<https://render.com/pricing> for current prices. Custom domains and multi-region
+are out of scope for v1.
 
 ## Observability
 
@@ -315,7 +312,7 @@ frontend/           React app, services layer, tests
 e2e/                Playwright tests
 on-call/            alert worker and agent prompt
 observability/      dashboard, alert rules, collector config
-deploy/             Fly configuration and deployment notes
+deploy/             Render deployment notes
 _docs/              spec, process, roles, architecture, testing, runbook
 _docs/issues/       the 20 issue sources
 scripts/            issue creation and maintenance scripts

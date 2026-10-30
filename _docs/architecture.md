@@ -136,15 +136,17 @@ application code. The release step runs `alembic upgrade head`.
 
 | Environment | App | Database | Trigger |
 | --- | --- | --- | --- |
-| dev | `openseat-dev` | `openseat-dev-db` | push to `main` |
-| prod | `openseat-prod` | `openseat-prod-db` | manual promotion |
+| prod/demo | `openseat` | `openseat-db` (free, expires after 30 days) | merge to `main` after checks pass |
+| local dev | Docker Compose | `db` container | manual |
 
-- One image tag `YYYYMMDD-HHMMSS-shortsha`, pushed to GHCR.
-- The same digest is deployed to dev and promoted to prod.
-- Fly release command runs migrations before the new version starts.
-- `/healthz` checks the database and returns the deployed version.
-- Rollback deploys a previous tag; migrations must be backward compatible for
-  one release.
+- Render builds the root Dockerfile from `render.yaml`; the free tier has no
+  prebuilt-image promotion and no separate dev environment.
+- The container entrypoint runs `alembic upgrade head` before uvicorn; a
+  failed migration stops the service start.
+- `/healthz` checks the database and returns the deployed commit
+  (`RENDER_GIT_COMMIT`).
+- Rollback redeploys a previous Render deploy; migrations must be backward
+  compatible for one release.
 
 ## Observability
 
@@ -165,5 +167,5 @@ application code. The release step runs `alembic upgrade head`.
 | Polling every 10s | No WebSocket infrastructure | Up to 10s staleness |
 | Row lock per session | Correct capacity under concurrency | Serialises bookings per session |
 | No notifications | Keeps scope small | Guests must check the page |
-| Fly.io | Image-based deploy, two environments, low cost | Vendor-specific config, less course parity than AWS |
+| Render | Free Docker hosting and Postgres, Blueprint in git | Free database expires after 30 days; one environment |
 | Grafana Cloud | Fast path to correlated telemetry | Vendor dependency, free-tier limits |

@@ -33,7 +33,7 @@ any environment.
 
 ## Out of scope
 
-- Deployment to Fly.io. Issue #15.
+- Deployment to Render. Issue #15.
 - Multi-architecture builds, Kubernetes, and a separate frontend container.
 - Seeding automatically in production.
 

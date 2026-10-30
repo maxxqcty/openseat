@@ -3,7 +3,7 @@ PYTHON ?= python
 BACKEND := backend
 FRONTEND := frontend
 
-.PHONY: install dev test e2e lint fmt seed seed-reset docker-up docker-down docker-build fly-create fly-db fly-secrets fly-deploy fly-verify fly-releases fly-rollback fly-validate
+.PHONY: install dev test e2e lint fmt seed seed-reset docker-up docker-down docker-build render-validate render-verify
 
 install:
 	cd $(BACKEND) && uv sync
@@ -48,29 +48,12 @@ docker-down:
 docker-down-v:
 	docker compose down -v
 
-# Fly.io (issue #15): ENV=dev|prod selects the target for the commands that
-# need one; setup and verify commands default to both environments.
+# Render (issue #15): render.yaml at the repo root creates the free web
+# service and Postgres database. Merging to main deploys; roll back from the
+# Render dashboard.
 
-fly-create:
-	$(PYTHON) scripts/fly.py create $(ENV)
+render-validate:
+	$(PYTHON) scripts/render.py validate
 
-fly-db:
-	$(PYTHON) scripts/fly.py db $(ENV)
-
-fly-secrets:
-	$(PYTHON) scripts/fly.py secrets $(ENV)
-
-fly-deploy:
-	$(PYTHON) scripts/fly.py deploy $(ENV)
-
-fly-verify:
-	$(PYTHON) scripts/fly.py verify $(ENV)
-
-fly-releases:
-	$(PYTHON) scripts/fly.py releases $(ENV)
-
-fly-rollback:
-	$(PYTHON) scripts/fly.py rollback $(ENV)
-
-fly-validate:
-	$(PYTHON) scripts/fly.py validate $(ENV)
+render-verify:
+	$(PYTHON) scripts/render.py verify $(URL)

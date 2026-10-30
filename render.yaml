@@ -1,0 +1,48 @@
+# Render Blueprint for the free demo deployment.
+#
+# Free-tier constraints (see https://render.com/docs/free):
+#   - One free Postgres database per workspace; it expires 30 days after creation.
+#   - Free web services spin down after 15 minutes without traffic and take
+#     about a minute to wake up.
+#   - Pre-deploy commands are paid-only. The Docker entrypoint runs
+#     `alembic upgrade head` before starting uvicorn, so a failed migration
+#     fails the service start instead of shipping a broken release.
+#
+# Dev stays local (`docker compose up --build`). See deploy/render/README.md
+# for the two-environment upgrade path.
+
+services:
+  - type: web
+    name: openseat
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /healthz
+    # Wait for GitHub Actions before deploying. If Render does not detect the
+    # repo's checks, change this to `commit` in the dashboard.
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: APP_ENV
+        value: production
+      # Render generates a 256-bit value; it never lives in git.
+      - key: SESSION_SECRET
+        generateValue: true
+      # Render injects the connection string from the database below.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: openseat-db
+          property: connectionString
+      # APP_VERSION is intentionally absent: the app falls back to Render's
+      # RENDER_GIT_COMMIT so /healthz reports the deployed commit.
+
+databases:
+  - name: openseat-db
+    plan: free
+    region: frankfurt
+    databaseName: openseat
+    user: openseat
+    postgresMajorVersion: "16"
+    # Only the web service on Render's private network may connect.
+    ipAllowList: []

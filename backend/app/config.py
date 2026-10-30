@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Literal
 
@@ -24,21 +25,22 @@ class Settings(BaseSettings):
     )
 
     app_env: Literal["development", "test", "production"] = "development"
-    app_version: str = "dev"
+    app_version: str = ""
     database_url: str | None = None
 
     session_secret: str = ""
     session_cookie_name: str = "openseat_session"
     session_ttl_hours: int = 8
-    session_cookie_secure: bool = False
+    session_cookie_secure: bool | None = None
 
     @field_validator("database_url", mode="after")
     @classmethod
     def normalize_database_url(cls, value: str | None) -> str | None:
-        """Accept the libpq form ``postgres://`` that ``fly mpg attach`` sets.
+        """Accept the libpq form ``postgres://`` used by hosted providers.
 
-        SQLAlchemy needs an explicit dialect; without this, the URL Fly writes
-        as a secret would fail to load a plugin at first connect.
+        Render and other platforms expose a ``postgres://`` (or
+        ``postgresql://``) connection string; SQLAlchemy needs an explicit
+        dialect, so add the psycopg driver before the first connect.
         """
         if value is None:
             return None
@@ -54,10 +56,19 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         return self
 
+    @model_validator(mode="after")
+    def default_app_version(self) -> Settings:
+        """Use the deployed commit when the platform does not set APP_VERSION."""
+        if not self.app_version:
+            self.app_version = os.environ.get("RENDER_GIT_COMMIT", "dev")
+        return self
+
     @property
     def cookie_secure(self) -> bool:
-        """Send the session cookie over HTTPS in production."""
-        return self.session_cookie_secure or self.app_env == "production"
+        """Send the session cookie over HTTPS, unless explicitly overridden."""
+        if self.session_cookie_secure is not None:
+            return self.session_cookie_secure
+        return self.app_env == "production"
 
 
 @lru_cache

@@ -19,7 +19,7 @@ numbers match the GitHub issue numbers in this repository.
 | 12 | Frontend integration with the real API and complete UI states | frontend, integration | 03, 09, 10 | 2h |
 | 13 | Production Dockerfile and one-command Compose stack | infra, docker | 11, 12 | 1.5h |
 | 14 | Playwright end-to-end tests for booking, waitlist, promotion, and check-in | test, e2e | 13 | 1.5h |
-| 15 | Deploy dev and prod to Fly.io with PostgreSQL | infra, deploy | 13 | 1h |
+| 15 | Deploy the demo to Render with PostgreSQL | infra, deploy | 13 | 1h |
 | 16 | CI/CD: build once, deploy dev, promote to prod, and roll back | ci, infra, deploy | 14, 15 | 1.5h |
 | 17 | OpenTelemetry traces, metrics, and structured logs | observability, backend | 15 | 2h |
 | 18 | Grafana dashboard, alert rules, and runbook verification | observability, docs | 17 | 1h |

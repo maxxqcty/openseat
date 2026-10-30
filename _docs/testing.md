@@ -96,7 +96,7 @@ header. Capture a trace and screenshot on failure.
 ## What is intentionally not tested
 
 - Tailwind classes and visual appearance. Use screenshots for the demo.
-- Third-party libraries (Fly, Grafana, Playwright).
+- Third-party libraries (Render, Grafana, Playwright).
 - Load and soak testing in v1. Add a k6 smoke test only if time remains.
 - Email, payments, and other out-of-scope features.
 

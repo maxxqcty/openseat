@@ -8,6 +8,10 @@ services:
       POSTGRES_DB: openseat
     volumes:
       - openseat-db-data:/var/lib/postgresql/data
+    # Published so `make seed` can reach the stack from the host. Change the
+    # host port if something else already listens on 5432.
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openseat -d openseat"]
       interval: 5s
@@ -21,9 +25,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+        VCS_REF: ${VCS_REF:-unknown}
     container_name: openseat-app
     environment:
-      APP_ENV: production
+      APP_ENV: development
       DATABASE_URL: postgresql+psycopg://openseat:openseat@db:5432/openseat
       SESSION_SECRET: ${SESSION_SECRET}
       SESSION_COOKIE_SECURE: "false"

@@ -1,43 +1,52 @@
 ---
-title: "Deploy dev and prod to Fly.io with PostgreSQL"
+title: "Deploy the demo to Render with PostgreSQL"
 labels: ["infra", "deploy"]
 depends_on: ["13"]
 ---
 
 ## Goal
 
-Two public HTTPS environments run the same image, each with its own database
-and secrets.
+A public HTTPS demo runs the root Docker image with a managed PostgreSQL
+database and generated secrets, deployed from `render.yaml` on Render's free
+tier.
 
 ## Acceptance criteria
 
-- [ ] Fly apps `openseat-dev` and `openseat-prod` exist in one region, each with
-      a PostgreSQL database.
-- [ ] `deploy/fly/` contains the configuration for both apps; internal port is
-      8080, HTTPS is enforced, and one machine stays warm for the demo.
-- [ ] `DATABASE_URL`, `SESSION_SECRET`, `APP_ENV`, and `APP_VERSION` are set as
-      Fly secrets per app; no secret appears in git or the image.
-- [ ] The release command runs `alembic upgrade head` and fails the deploy if
-      migrations fail.
-- [ ] `/healthz` returns 200 with `database: "ok"` and the deployed version on
-      both URLs.
+- [ ] `render.yaml` at the repository root defines one free Docker web service
+      (`openseat`) and one free PostgreSQL database (`openseat-db`) in
+      Frankfurt.
+- [ ] The web service listens on Render's injected `PORT`, serves HTTPS, and
+      passes `/healthz`.
+- [ ] `SESSION_SECRET` uses `generateValue`; `DATABASE_URL` comes from the
+      Render database. No secret appears in git or the image.
+- [ ] The container entrypoint runs `alembic upgrade head` and fails the start
+      if migrations fail (free plans cannot run pre-deploy commands).
+- [ ] `/healthz` returns 200 with `status: "ok"`, `database: "available"`, and
+      the deployed commit (from `RENDER_GIT_COMMIT`) as `version`.
 - [ ] The UI loads, registration works, a session can be created and booked,
-      and the cookie has `Secure` and `HttpOnly` in prod.
-- [ ] The dev and prod databases are separate; no prod data is copied to dev.
-- [ ] Seed data is loaded in dev only, manually, after the deploy.
-- [ ] A rollback with the previous image tag is documented and tested once.
-- [ ] README lists both URLs, the deploy commands, and the cost expectation.
+      and the cookie has `Secure` and `HttpOnly`.
+- [ ] Seed data runs only against the local Compose stack, never Render.
+- [ ] Rollback from the Render dashboard is documented and tested once.
+- [ ] README lists the URL, deploy trigger, free-tier limits, and cost
+      expectation.
+- [ ] `make render-validate` and `make render-verify URL=...` work without a
+      Render account.
 
 ## Out of scope
 
 - CI/CD automation. Issue #16.
-- Custom domains and multi-region.
+- A separate dev/staging environment, custom domains, and multi-region. A
+  second environment needs a paid PostgreSQL plan; see
+  `deploy/render/README.md`.
 - Blue/green or canary deploys.
 
 ## Constraints
 
 - Use the image built in issue #13; do not add a second deployment path.
-- Region `fra` by default; document how to change it.
-- One app machine per environment for the course demo.
+- Region Frankfurt by default; document how to change it.
+- One web service for the demo.
 - Do not run PostgreSQL inside the application container.
-- Do not put secrets in `fly.toml`.
+- Do not commit secrets to `render.yaml`; use `generateValue` and
+  `fromDatabase`.
+- Free Postgres expires 30 days after creation, so the demo database is
+  disposable.

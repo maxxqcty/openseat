@@ -1,14 +1,20 @@
-# Dependencies
-node_modules
-.venv
-__pycache__
-*.pyc
+# Dependencies and virtualenvs. The `**/` prefix is required: Docker matches
+# bare patterns only at the build-context root, which is why `backend/.venv`
+# and `frontend/node_modules` used to leak into the image.
+**/node_modules
+**/.venv
+**/venv
+
+# Python caches and bytecode
+**/__pycache__
+**/*.pyc
+**/*.pyo
 
 # Git
 .git
 .gitignore
 
-# Tests
+# Tests and fixtures
 **/tests
 **/*.test.ts
 **/*.test.tsx
@@ -16,37 +22,42 @@ __pycache__
 **/*_test.py
 
 # Build artifacts
-dist
-build
-*.egg-info
+**/dist
+**/build
+**/*.egg-info
+**/htmlcov
 
 # Caches
-.cache
-.eslintcache
-.pytest_cache
-.mypy_cache
-.ruff_cache
-coverage
-.nyc_output
+**/.cache
+**/.eslintcache
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.vite
+**/coverage
+**/.nyc_output
 
-# IDE
+# IDE and OS files
 .vscode
 .idea
-*.swp
-*.swo
+**/*.swp
+**/*.swo
+**/.DS_Store
+**/Thumbs.db
 
-# Environment
-.env
-.env.*
+# Environment files
+**/.env
+**/.env.*
 
 # Logs
-*.log
-npm-debug.log*
+**/*.log
+**/npm-debug.log*
 
-# OS
-.DS_Store
-Thumbs.db
-
-# CI
+# CI, docs, and local tooling are not needed in the image
 .github
 .gitlab-ci.yml
+e2e
+_docs
+.opencode
+tmp
+scratch

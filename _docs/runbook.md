@@ -30,17 +30,19 @@ The source of truth is `observability/alerts.yaml`, which lands in issue #18.
 
 **Meaning:** the health endpoint is unreachable or failing.
 
-1. Check the Fly app status and recent releases.
-2. Open the app logs; look for migration failures or a crash loop.
-3. Check the database status in the Fly dashboard.
-4. If the last release is the cause, roll back to the previous tag.
+1. Check the Render service status and recent deploys.
+2. Open the service logs; look for migration failures or a crash loop.
+3. Check the database status in the Render dashboard.
+4. If the last deploy is the cause, roll back to the previous deploy.
 5. If the database is down, restore service before rolling back the app.
 
 ```bash
-fly status -a openseat-prod
-fly logs -a openseat-prod
-fly releases -a openseat-prod
+curl -fsS https://<service>.onrender.com/healthz
+make render-verify URL=https://<service>.onrender.com
 ```
+
+The Render dashboard shows the same data under **Logs**, **Events**, and
+**Deploys**; there is no platform CLI in the default workflow.
 
 ## OpenSeatHighErrorRate
 
