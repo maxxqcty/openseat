@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
@@ -49,10 +50,10 @@ class SPAStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope: MutableMapping[str, Any]) -> Response:
         try:
             return await super().get_response(path, scope)
-        except Exception:
-            # Fall back to index.html for client-side routing
-            # but only for non-API paths
-            if not path.startswith("api/"):
+        except StarletteHTTPException as exc:
+            # Fall back to index.html for client-side routing, but never for
+            # anything under /api (including the bare /api path).
+            if exc.status_code == 404 and path != "api" and not path.startswith("api/"):
                 return await super().get_response("index.html", scope)
             raise
 
@@ -99,7 +100,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(booking_item_router)
 
     # Serve the built frontend whenever it is present. The container always
-    # ships `dist/`, so a dev Fly app works without Vite; tests never serve it.
+    # ships `dist/`, so a deployed app works without Vite; tests never serve it.
     if resolved.app_env != "test" and FRONTEND_DIST.exists():
         # Mount static assets with long cache
         app.mount(
