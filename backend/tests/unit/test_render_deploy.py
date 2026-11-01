@@ -125,3 +125,12 @@ def test_makefile_exposes_the_render_targets_and_no_fly_targets() -> None:
     assert "render-validate:" in makefile
     assert "render-verify:" in makefile
     assert "fly-" not in makefile
+
+
+def test_render_targets_run_inside_the_backend_environment() -> None:
+    """PyYAML is a backend dev dependency, so the host Python cannot import it."""
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert (
+        "cd $(BACKEND) && uv run python ../scripts/render.py validate" in makefile
+    )
+    assert "cd $(BACKEND) && uv run python ../scripts/render.py verify $(URL)" in makefile

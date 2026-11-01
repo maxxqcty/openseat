@@ -34,7 +34,8 @@ make seed            # uses the published localhost:5432 database
    and apply `render.yaml`.
 3. Render generates `SESSION_SECRET`, wires `DATABASE_URL` from
    `openseat-db`, and builds the image.
-4. Open the service URL and check `https://<service>.onrender.com/healthz`.
+4. Open the service URL and check
+   `https://openseat-1x8l.onrender.com/healthz`.
    `version` is the deployed Git commit because the app falls back to Render's
    `RENDER_GIT_COMMIT`.
 
@@ -51,7 +52,8 @@ change the setting to `commit` in the dashboard.
   recent previous deploys.
 - **Deploy a specific commit:** use **Manual Deploy > Deploy a specific commit**
   in the dashboard.
-- **Verify:** `make render-verify URL=https://<service>.onrender.com`. Set
+- **Verify:** `make render-verify` (defaults to the demo URL) or
+  `make render-verify URL=https://<service>.onrender.com`. Set
   `EXPECTED_VERSION=<commit>` to assert the deployed version.
 
 There is no image-promotion pipeline: Render builds the root Dockerfile from

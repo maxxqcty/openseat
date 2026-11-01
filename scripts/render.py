@@ -26,7 +26,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 BLUEPRINT = ROOT / "render.yaml"
-DEFAULT_URL = "https://openseat.onrender.com"
+DEFAULT_URL = "https://openseat-1x8l.onrender.com"
 HEALTH_TIMEOUT_SECONDS = 180
 
 

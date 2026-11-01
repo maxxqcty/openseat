@@ -53,7 +53,7 @@ docker-down-v:
 # Render dashboard.
 
 render-validate:
-	$(PYTHON) scripts/render.py validate
+	cd $(BACKEND) && uv run python ../scripts/render.py validate
 
 render-verify:
-	$(PYTHON) scripts/render.py verify $(URL)
+	cd $(BACKEND) && uv run python ../scripts/render.py verify $(URL)
