@@ -43,7 +43,7 @@ Deploy and operations:
 
 ```bash
 make render-validate                     # offline Blueprint check
-make render-verify URL=https://open-seat.onrender.com
+make render-verify URL=https://openseat-9b15.onrender.com
 make render-deploy-hook ARGS="--dry-run" # guarded hook, dry run locally
 make render-promote ARGS="--dry-run"     # paid same-digest promotion
 make render-rollback ARGS="--dry-run"    # paid rollback

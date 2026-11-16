@@ -45,8 +45,8 @@ alert quickly; production keeps the ten-minute window.
 5. If the database is down, restore service before rolling back the app.
 
 ```bash
-curl -fsS https://open-seat.onrender.com/healthz
-make render-verify URL=https://open-seat.onrender.com
+curl -fsS https://openseat-9b15.onrender.com/healthz
+make render-verify URL=https://openseat-9b15.onrender.com
 ```
 
 The Render dashboard shows the same data under **Logs**, **Events**, and
@@ -127,8 +127,8 @@ the workflow prints a warning.
 Verify a deploy:
 
 ```bash
-make render-verify URL=https://open-seat.onrender.com
-EXPECTED_VERSION=<sha> make render-verify URL=https://open-seat.onrender.com
+make render-verify URL=https://openseat-9b15.onrender.com
+EXPECTED_VERSION=<sha> make render-verify URL=https://openseat-9b15.onrender.com
 ```
 
 On the free plan, roll back from **Render Dashboard > Deploys > Rollback**.

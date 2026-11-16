@@ -11,7 +11,7 @@ exists.
 | # | Criterion | Possible | Claimed | Evidence | Gap |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Problem, users, and core flow are clear | 2 | 2 | `README.md`, `_docs/spec.md` | None |
-| 2 | Public demo is reachable and matches the release | 2 | 1 | <https://open-seat.onrender.com/healthz> | Live commit was `330e577` while `main` was `ca65aa5`; re-verify after the release deploy |
+| 2 | Public demo is reachable and matches the release | 2 | 1 | <https://openseat-9b15.onrender.com/healthz> | Live commit was `330e577` while `main` was `ca65aa5`; re-verify after the release deploy |
 | 3 | Fresh clone runs with documented commands | 2 | 2 | `README.md`, `_docs/evidence/README.md#fresh-clone-verification` | None |
 | 4 | Domain rules are implemented and tested | 2 | 2 | `backend/app/services/`, `backend/tests/unit/`, `backend/tests/integration/` | None |
 | 5 | Capacity is race-safe under concurrency | 2 | 2 | `backend/tests/integration/test_bookings.py` race test | None |
@@ -44,8 +44,8 @@ reviews.
 - The deployed commit must match the release commit. Re-run:
 
 ```bash
-make render-verify URL=https://open-seat.onrender.com
-EXPECTED_VERSION=<release-sha> make render-verify URL=https://open-seat.onrender.com
+make render-verify URL=https://openseat-9b15.onrender.com
+EXPECTED_VERSION=<release-sha> make render-verify URL=https://openseat-9b15.onrender.com
 ```
 
 ### 3. Fresh clone

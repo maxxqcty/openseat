@@ -36,8 +36,8 @@ Status legend:
 
 ## Live demo
 
-- URL: <https://open-seat.onrender.com>
-- Health: <https://open-seat.onrender.com/healthz>
+- URL: <https://openseat-9b15.onrender.com>
+- Health: <https://openseat-9b15.onrender.com/healthz>
 - Status: **verified reachable**; the deployed commit is checked with
   `make render-verify`.
 - Note: the free web service sleeps after 15 minutes without traffic. The first

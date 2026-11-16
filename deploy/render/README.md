@@ -38,7 +38,7 @@ make seed            # uses the published localhost:5432 database
 3. Render generates `SESSION_SECRET`, wires `DATABASE_URL` from
    `openseat-db`, and builds the image.
 4. Open the service URL and check
-   `https://open-seat.onrender.com/healthz`.
+   `https://openseat-9b15.onrender.com/healthz`.
    `version` is the deployed Git commit because the app falls back to Render's
    `RENDER_GIT_COMMIT`.
 5. Add the optional telemetry variables from `.env.example`
@@ -98,8 +98,8 @@ schema.
 
 ```bash
 make render-validate
-make render-verify URL=https://open-seat.onrender.com
-EXPECTED_VERSION=<commit> make render-verify URL=https://open-seat.onrender.com
+make render-verify URL=https://openseat-9b15.onrender.com
+EXPECTED_VERSION=<commit> make render-verify URL=https://openseat-9b15.onrender.com
 ```
 
 `validate` checks the Blueprint offline. `verify` polls the public URL for up
