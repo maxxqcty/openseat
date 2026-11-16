@@ -4,19 +4,24 @@ import { useAuth, useHostSessions, useCancelSession } from '../hooks'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
-import { formatDateTime } from '../lib/date'
+import { DateBadge } from '../components/DateBadge'
+import { accentFor } from '../lib/accent'
+import { formatDateTime, hasSessionEnded } from '../lib/date'
 
 export function HostDashboardPage() {
   const { user, loading: authLoading } = useAuth()
-  const { sessions, error, reload } = useHostSessions()
+  const { sessions: allSessions, error, reload } = useHostSessions()
   const { cancel, loading: cancellingLoading } = useCancelSession()
   const navigate = useNavigate()
   const [cancellingSessionId, setCancellingSessionId] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState<string | null>(null)
 
   const [now] = useState(() => Date.now())
-  const upcoming = useMemo(() => sessions.filter((s) => s.status === 'scheduled' && Date.parse(s.startsAt) > now), [sessions, now])
-  const past = useMemo(() => sessions.filter((s) => s.status === 'cancelled' || Date.parse(s.startsAt) <= now), [sessions, now])
+  // The API lists every upcoming session; the dashboard shows only the caller's own.
+  const sessions = useMemo(() => allSessions.filter((s) => s.hostId === user?.id), [allSessions, user?.id])
+  // A session stays "upcoming" until it ends, so check-in during the session is reachable.
+  const upcoming = useMemo(() => sessions.filter((s) => s.status === 'scheduled' && !hasSessionEnded(s.startsAt, s.durationMinutes, now)), [sessions, now])
+  const past = useMemo(() => sessions.filter((s) => s.status === 'cancelled' || hasSessionEnded(s.startsAt, s.durationMinutes, now)), [sessions, now])
 
   useEffect(() => {
     if (authLoading) return
@@ -28,7 +33,7 @@ export function HostDashboardPage() {
   if (authLoading) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-12">
-        <div className="rounded-lg border border-muted/20 bg-surface p-8 text-center">
+        <div className="rounded-2xl border border-muted/15 bg-card shadow-[var(--shadow-card)] p-8 text-center">
           <div className="inline-flex items-center gap-2 text-muted">
             <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -77,11 +82,37 @@ export function HostDashboardPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold tracking-tight text-text">Host dashboard</h1>
+        <h1 className="text-4xl font-bold tracking-tight text-text">Host dashboard</h1>
         <Link to="/host/sessions/new" className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-surface hover:bg-primary/90">
           Create session
         </Link>
       </div>
+
+      {sessions.length > 0 && (
+        <dl className="mt-8 grid grid-cols-3 gap-3">
+          {[
+            { label: 'Upcoming', value: upcoming.length, tone: 'bg-emerald-100 text-emerald-900' },
+            {
+              label: 'Seats on offer',
+              value: upcoming.reduce((sum, s) => sum + s.capacity, 0),
+              tone: 'bg-emerald-50 text-emerald-900',
+            },
+            {
+              label: 'Next up',
+              value: upcoming[0] ? formatDateTime(upcoming[0].startsAt).split(',').slice(0, 2).join(',') : '—',
+              tone: 'border border-muted/15 bg-card text-text',
+              small: true,
+            },
+          ].map((stat) => (
+            <div key={stat.label} className={`rounded-2xl p-4 ${stat.tone}`}>
+              <dt className="text-xs font-bold uppercase tracking-[0.15em] opacity-75">{stat.label}</dt>
+              <dd className={`mt-1 font-display font-bold ${stat.small ? 'text-lg leading-7' : 'text-4xl'}`}>
+                {stat.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
 
       {sessions.length === 0 ? (
         <EmptyState
@@ -96,8 +127,9 @@ export function HostDashboardPage() {
               <h2 className="text-lg font-semibold text-text">Upcoming</h2>
               <ul className="mt-4 space-y-3" role="list">
                 {upcoming.map((session) => (
-                  <li key={session.id} className="rounded-lg border border-muted/20 bg-surface p-4">
-                    <div className="flex items-center justify-between gap-4">
+                  <li key={session.id} className="rounded-2xl border border-muted/15 bg-card shadow-[var(--shadow-card)] p-4">
+                    <div className="flex items-center gap-4">
+                      <DateBadge iso={session.startsAt} accent={accentFor(session.id)} />
                       <div className="flex-1 min-w-0">
                         <Link to={`/host/sessions/${session.id}`} className="font-semibold text-text hover:text-primary truncate block">
                           {session.title}
@@ -107,7 +139,7 @@ export function HostDashboardPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-green-50 text-green-700">
-                          {session.capacity} seats
+                          {session.capacity} {session.capacity === 1 ? 'seat' : 'seats'}
                         </span>
                         <Button
                           variant="secondary"
@@ -136,7 +168,7 @@ export function HostDashboardPage() {
               <h2 className="text-lg font-semibold text-text">Past & cancelled</h2>
               <ul className="mt-4 space-y-3" role="list">
                 {past.map((session) => (
-                  <li key={session.id} className="rounded-lg border border-muted/20 bg-surface p-4 opacity-60">
+                  <li key={session.id} className="rounded-2xl border border-muted/15 bg-card shadow-[var(--shadow-card)] p-4 opacity-60">
                     <div className="flex items-center justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <Link to={`/host/sessions/${session.id}`} className="font-semibold text-text hover:text-primary truncate block">

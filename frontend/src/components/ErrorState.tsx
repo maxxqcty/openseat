@@ -10,7 +10,7 @@ export function ErrorState({ title, message, action }: ErrorStateProps) {
   return (
     <section
       role="alert"
-      className="rounded-lg border border-danger/30 bg-danger/5 p-8 text-center"
+      className="rounded-2xl border border-danger/30 bg-danger/5 p-8 text-center"
     >
       <h2 className="text-lg font-semibold text-text">{title}</h2>
       <p className="mt-2 text-sm text-muted">{message}</p>

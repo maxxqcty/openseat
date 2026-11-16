@@ -11,7 +11,7 @@ export function NotFoundPage() {
         to="/"
         className="mt-8 inline-flex items-center justify-center rounded-md bg-primary px-5 py-3 font-semibold text-surface transition-colors hover:bg-primary/90"
       >
-        Back to browse
+        Back to home
       </Link>
     </div>
   )

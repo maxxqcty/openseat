@@ -132,6 +132,13 @@ test('host, guest A, and guest B complete the booking, promotion, and check-in j
 test('anonymous requests are rejected before any resource lookup', async ({ request }) => {
   const missing = '00000000-0000-4000-8000-000000000000'
 
+  // Events are for signed-in users: listing and viewing a session both need a cookie.
+  const list = await request.get('/api/sessions')
+  expect(list.status()).toBe(401)
+
+  const detail = await request.get(`/api/sessions/${missing}`)
+  expect(detail.status()).toBe(401)
+
   const roster = await request.get(`/api/sessions/${missing}/bookings`)
   expect(roster.status()).toBe(401)
 

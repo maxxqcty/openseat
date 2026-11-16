@@ -26,3 +26,27 @@ export function formatTimeRange(startsAt: string, durationMinutes: number): stri
   const end = new Date(start.getTime() + durationMinutes * 60 * 1000)
   return `${start.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} – ${end.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`
 }
+
+const CHECK_IN_OPENS_BEFORE_START_MS = 2 * 60 * 60 * 1000
+
+/** When a session ends (start plus duration), as epoch milliseconds. */
+export function sessionEndsAt(startsAt: string, durationMinutes: number): number {
+  return Date.parse(startsAt) + durationMinutes * 60 * 1000
+}
+
+/** A session has ended once start plus duration has passed (matches the API's `past`). */
+export function hasSessionEnded(startsAt: string, durationMinutes: number, now: number): boolean {
+  return now > sessionEndsAt(startsAt, durationMinutes)
+}
+
+/** Check-in is open from two hours before the start until the session ends. */
+export function isCheckInWindowOpen(
+  startsAt: string,
+  durationMinutes: number,
+  now: number,
+): boolean {
+  return (
+    now >= Date.parse(startsAt) - CHECK_IN_OPENS_BEFORE_START_MS &&
+    now <= sessionEndsAt(startsAt, durationMinutes)
+  )
+}

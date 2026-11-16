@@ -1,14 +1,18 @@
-import { useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import { useSessionDetail, useBooking, useCancelBooking, useAuth } from '../hooks'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
+import { SeatDots } from '../components/SeatDots'
+import { StatusBadge } from '../components/StatusBadge'
+import { CalendarIcon, ClockIcon, PinIcon, UsersIcon } from '../components/icons'
+import { accentFor } from '../lib/accent'
 import { formatDateTime } from '../lib/date'
 
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { user } = useAuth()
   const { session, loading, error, reload } = useSessionDetail(id!)
   const { book, loading: bookingLoading } = useBooking()
@@ -26,7 +30,7 @@ export function SessionDetailPage() {
 
   async function handleBook() {
     if (!user) {
-      window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname)}`
+      navigate(`/login?returnTo=${encodeURIComponent(`/sessions/${id ?? ''}`)}`)
       return
     }
     try {
@@ -57,14 +61,12 @@ export function SessionDetailPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-12">
-        <div className="space-y-4 animate-pulse">
-          <div className="h-8 bg-muted/20 rounded w-1/3" />
-          <div className="h-4 bg-muted/20 rounded w-full" />
-          <div className="h-4 bg-muted/20 rounded w-1/2" />
-          <div className="grid grid-cols-2 gap-4">
-            <div className="h-20 bg-muted/20 rounded" />
-            <div className="h-20 bg-muted/20 rounded" />
+      <div className="mx-auto max-w-5xl px-4 py-12">
+        <div className="animate-pulse space-y-4">
+          <div className="h-40 rounded-3xl bg-muted/15" />
+          <div className="grid gap-4 md:grid-cols-[1fr_340px]">
+            <div className="h-56 rounded-2xl bg-muted/15" />
+            <div className="h-56 rounded-2xl bg-muted/15" />
           </div>
         </div>
       </div>
@@ -91,114 +93,232 @@ export function SessionDetailPage() {
     )
   }
 
-  const seatsLeft = Math.max(0, session.capacity - session.confirmedCount - session.checkedInCount)
+  const accent = accentFor(session.id)
+  const taken = session.confirmedCount + session.checkedInCount
+  const seatsLeft = Math.max(0, session.capacity - taken)
   const isBookable = session.status === 'scheduled' && !session.past && seatsLeft > 0
   const isWaitlistable = session.status === 'scheduled' && !session.past
   const canBook = user && isBookable
   const canWaitlist = user && isWaitlistable
   const isBookingPending = bookingLoading || cancellingLoading
+  const start = new Date(session.startsAt)
+  const returnTo = encodeURIComponent(`/sessions/${session.id}`)
+  const full = seatsLeft === 0
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-12">
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight text-text">{session.title}</h1>
-        <p className="mt-2 text-muted">{session.description}</p>
+    <div className="mx-auto max-w-5xl px-4 py-10">
+      <Link
+        to="/sessions"
+        className="mb-5 inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-text"
+      >
+        ← All sessions
+      </Link>
+
+      <header
+        className={`relative overflow-hidden rounded-3xl ${accent.stub} ${accent.onStub} shadow-[var(--shadow-lift)]`}
+      >
+        <div aria-hidden="true" className="bg-dotgrid pointer-events-none absolute inset-0 opacity-15" />
+        <div className="relative flex flex-col gap-6 p-7 sm:flex-row sm:items-center sm:p-9">
+          <div
+            aria-hidden="true"
+            className="flex h-28 w-28 shrink-0 flex-col items-center justify-center rounded-2xl bg-white/20 text-center backdrop-blur-sm"
+          >
+            <span className="text-xs font-bold uppercase tracking-[0.2em]">
+              {start.toLocaleString(undefined, { weekday: 'short' })}
+            </span>
+            <span className="font-display text-5xl font-bold leading-none">{start.getDate()}</span>
+            <span className="text-xs font-bold uppercase tracking-[0.2em]">
+              {start.toLocaleString(undefined, { month: 'short' })}
+            </span>
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{session.title}</h1>
+            <p className="mt-2 max-w-2xl opacity-90">{session.description}</p>
+            <div className="mt-4 flex flex-wrap gap-2 text-sm font-semibold">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1">
+                <ClockIcon className="h-4 w-4" />
+                {formatDateTime(session.startsAt)} ({session.durationMinutes} min)
+              </span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-black/15 px-3 py-1">
+                <PinIcon className="h-4 w-4" />
+                {session.location}
+              </span>
+            </div>
+          </div>
+        </div>
       </header>
 
-      {message && (
-        <div
-          className={`mb-6 rounded-md p-4 text-sm ${message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}
-          role="alert"
-        >
-          {message.text}
+      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[1fr_340px]">
+        <div className="space-y-6">
+          <section className="rounded-2xl border border-muted/15 bg-card p-6 shadow-[var(--shadow-card)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-text">The room</h2>
+              <span className={`rounded-full px-3 py-1 text-xs font-bold ${accent.soft} ${accent.text}`}>
+                {session.capacity} {session.capacity === 1 ? 'seat' : 'seats'}
+              </span>
+            </div>
+            <SeatDots
+              capacity={session.capacity}
+              taken={taken}
+              accent={accent}
+              max={60}
+              className="mt-4 gap-1.5 [&>span]:h-5 [&>span]:w-5 [&>span]:rounded-md"
+            />
+            <dl className="mt-5 grid grid-cols-3 gap-3 text-center">
+              <div className="rounded-xl bg-cream px-3 py-3">
+                <dt className="text-xs font-semibold text-muted">Confirmed</dt>
+                <dd className="font-display text-2xl font-bold text-text">{session.confirmedCount}</dd>
+              </div>
+              <div className="rounded-xl bg-cream px-3 py-3">
+                <dt className="text-xs font-semibold text-muted">Checked in</dt>
+                <dd className="font-display text-2xl font-bold text-text">{session.checkedInCount}</dd>
+              </div>
+              <div className="rounded-xl bg-emerald-50 px-3 py-3">
+                <dt className="text-xs font-semibold text-emerald-800">Waitlisted</dt>
+                <dd className="font-display text-2xl font-bold text-emerald-900">{session.waitlistCount}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="rounded-2xl border border-muted/15 bg-card p-6 shadow-[var(--shadow-card)]">
+            <h2 className="text-xl font-bold text-text">Details</h2>
+            <dl className="mt-4 grid gap-x-6 gap-y-4 text-sm sm:grid-cols-2">
+              <div className="flex items-start gap-3">
+                <CalendarIcon className={`mt-0.5 h-5 w-5 ${accent.text}`} />
+                <div>
+                  <dt className="text-muted">Created</dt>
+                  <dd className="text-text">{new Date(session.createdAt).toLocaleString()}</dd>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <UsersIcon className={`mt-0.5 h-5 w-5 ${accent.text}`} />
+                <div>
+                  <dt className="text-muted">Host</dt>
+                  <dd className="font-mono text-xs text-text">{session.hostId.slice(0, 8)}</dd>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <ClockIcon className={`mt-0.5 h-5 w-5 ${accent.text}`} />
+                <div>
+                  <dt className="text-muted">Status</dt>
+                  <dd className="capitalize text-text">{session.past ? 'ended' : session.status}</dd>
+                </div>
+              </div>
+            </dl>
+          </section>
         </div>
-      )}
 
-      <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 text-sm mb-6">
-        <div>
-          <dt className="text-muted">Date & time</dt>
-          <dd className="text-text">{formatDateTime(session.startsAt)} ({session.durationMinutes} min)</dd>
-        </div>
-        <div>
-          <dt className="text-muted">Location</dt>
-          <dd className="text-text">{session.location}</dd>
-        </div>
-        <div>
-          <dt className="text-muted">Seats left</dt>
-          <dd className="text-text font-semibold">{seatsLeft} / {session.capacity}</dd>
-        </div>
-        <div>
-          <dt className="text-muted">Status</dt>
-          <dd className="text-text capitalize">{session.status}</dd>
-        </div>
-      </dl>
+        <aside className="space-y-4 lg:sticky lg:top-24">
+          <section className="overflow-hidden rounded-2xl border border-muted/15 bg-card shadow-[var(--shadow-lift)]">
+            <div className={`${accent.soft} px-6 py-5`}>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted">Seats left</p>
+              <p className="mt-1 flex items-baseline gap-2">
+                <span className={`font-display text-5xl font-bold ${accent.text}`}>{seatsLeft}</span>
+                <span className="text-lg font-semibold text-muted">/ {session.capacity}</span>
+              </p>
+              <p className="mt-1 text-sm text-muted">
+                {session.status === 'cancelled'
+                  ? 'This session was cancelled.'
+                  : session.past
+                    ? 'This session has ended.'
+                    : full
+                      ? 'Full. Join the waitlist and get promoted if a seat opens.'
+                      : seatsLeft <= 2
+                        ? 'Almost full. Grab a seat while you can.'
+                        : 'Plenty of room.'}
+              </p>
+            </div>
 
-      {user && session.myBooking && (
-        <section className="mb-6 rounded-lg border border-muted/20 bg-surface p-4">
-          <h2 className="text-lg font-semibold text-text">Your booking</h2>
-          <p className="mt-1 capitalize text-text">
-            Status: <span className="font-medium">
-              {session.myBooking.status === 'confirmed' ? 'Confirmed' :
-               session.myBooking.status === 'waitlisted' ? `Waitlisted, position ${session.myBooking.waitlistPosition}` :
-               session.myBooking.status === 'checked_in' ? 'Checked in' : 'Cancelled'}
-            </span>
-          </p>
-          {session.myBooking.status !== 'cancelled' && session.myBooking.status !== 'checked_in' && (
-            <Button
-              variant="danger"
-              className="mt-4"
-              onClick={() => handleCancel(session.myBooking!.id)}
-              disabled={isBookingPending || cancellingBookingId === session.myBooking.id}
-            >
-              {cancellingBookingId === session.myBooking.id ? 'Cancelling…' : 'Cancel booking'}
-            </Button>
-          )}
-        </section>
-      )}
+            <div className="space-y-4 p-6">
+              {message && (
+                <div
+                  className={`rounded-lg p-3 text-sm font-medium ${message.type === 'success' ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}
+                  role="alert"
+                >
+                  {message.text}
+                </div>
+              )}
 
-      {user && !session.myBooking && (canBook || canWaitlist) && (
-        <section className="mb-6">
-          <Button
-            className="w-full"
-            onClick={handleBook}
-            disabled={isBookingPending || (!canBook && !canWaitlist)}
-          >
-            {bookingLoading ? 'Booking…' : seatsLeft > 0 ? 'Book seat' : 'Join waitlist'}
-          </Button>
-        </section>
-      )}
+              {user && session.myBooking && (
+                <div>
+                  <h2 className="text-sm font-bold text-text">Your booking</h2>
+                  <p className="mt-2 flex flex-wrap items-center gap-2 text-text">
+                    <StatusBadge status={session.myBooking.status} />
+                    {session.myBooking.status === 'waitlisted' && (
+                      <span className="text-sm font-semibold text-primary">
+                        Position {session.myBooking.waitlistPosition}
+                      </span>
+                    )}
+                  </p>
+                  <p className="sr-only">
+                    Status:{' '}
+                    {session.myBooking.status === 'confirmed'
+                      ? 'Confirmed'
+                      : session.myBooking.status === 'waitlisted'
+                        ? `Waitlisted, position ${session.myBooking.waitlistPosition}`
+                        : session.myBooking.status === 'checked_in'
+                          ? 'Checked in'
+                          : 'Cancelled'}
+                  </p>
+                  {session.myBooking.status !== 'cancelled' &&
+                    session.myBooking.status !== 'checked_in' && (
+                      <Button
+                        variant="danger"
+                        className="mt-4 w-full"
+                        onClick={() => handleCancel(session.myBooking!.id)}
+                        disabled={isBookingPending || cancellingBookingId === session.myBooking.id}
+                      >
+                        {cancellingBookingId === session.myBooking.id ? 'Cancelling…' : 'Cancel booking'}
+                      </Button>
+                    )}
+                </div>
+              )}
 
-      {user && !session.myBooking && !canBook && !canWaitlist && (
-        <EmptyState
-          title="Booking not available"
-          message={session.past ? 'This session has already ended.' : session.status === 'cancelled' ? 'This session has been cancelled.' : 'No seats or waitlist available.'}
-        />
-      )}
+              {user && !session.myBooking && (canBook || canWaitlist) && (
+                <Button
+                  className="w-full py-3 text-base"
+                  onClick={handleBook}
+                  disabled={isBookingPending || (!canBook && !canWaitlist)}
+                >
+                  {bookingLoading ? 'Booking…' : seatsLeft > 0 ? 'Book seat' : 'Join waitlist'}
+                </Button>
+              )}
 
-      {!user && (
-        <section className="mb-6 text-center">
-          <p className="text-muted">
-            <Link to={`/login?returnTo=${encodeURIComponent(window.location.pathname)}`} className="font-semibold text-primary hover:text-primary/80">Sign in</Link>{' '}
-            or{' '}
-            <Link to={`/signup?returnTo=${encodeURIComponent(window.location.pathname)}`} className="font-semibold text-primary hover:text-primary/80">create an account</Link>{' '}
-            to book a seat.
-          </p>
-        </section>
-      )}
+              {user && !session.myBooking && !canBook && !canWaitlist && (
+                <EmptyState
+                  title="Booking not available"
+                  message={
+                    session.past
+                      ? 'This session has already ended.'
+                      : session.status === 'cancelled'
+                        ? 'This session has been cancelled.'
+                        : 'No seats or waitlist available.'
+                  }
+                />
+              )}
 
-      <section>
-        <h2 className="text-lg font-semibold text-text mb-4">Details</h2>
-        <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <div>
-            <dt className="text-muted">Host</dt>
-            <dd className="text-text">{session.hostId}</dd>
-          </div>
-          <div>
-            <dt className="text-muted">Created</dt>
-            <dd className="text-text">{new Date(session.createdAt).toLocaleString()}</dd>
-          </div>
-        </dl>
-      </section>
+              {!user && (
+                <p className="text-sm text-muted">
+                  <Link
+                    to={`/login?returnTo=${returnTo}`}
+                    className="font-semibold text-primary hover:text-primary-dark"
+                  >
+                    Sign in
+                  </Link>{' '}
+                  or{' '}
+                  <Link
+                    to={`/signup?returnTo=${returnTo}`}
+                    className="font-semibold text-primary hover:text-primary-dark"
+                  >
+                    create an account
+                  </Link>{' '}
+                  to book a seat.
+                </p>
+              )}
+            </div>
+          </section>
+        </aside>
+      </div>
     </div>
   )
 }

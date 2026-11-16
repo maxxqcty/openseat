@@ -45,6 +45,7 @@ const KNOWN_ERROR_CODES = new Set<string>([
   'network_error',
   'not_found',
   'rate_limited',
+  'server_error',
   'unauthorized',
   'validation_error',
 ])
@@ -59,7 +60,7 @@ function errorCodeFor(status: number, wireCode: unknown): ErrorCode {
   if (status === 404) return 'not_found'
   if (status === 409) return 'conflict'
   if (status === 429) return 'rate_limited'
-  if (status >= 500) return 'network_error'
+  if (status >= 500) return 'server_error'
   return 'validation_error'
 }
 

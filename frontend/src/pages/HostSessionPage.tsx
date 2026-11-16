@@ -1,11 +1,10 @@
-import { useParams } from 'react-router-dom'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useAuth, useSessionDetail, useRoster, useCheckIn } from '../hooks'
 import { Button } from '../components/Button'
 import { EmptyState } from '../components/EmptyState'
 import { ErrorState } from '../components/ErrorState'
-import { formatDateTime } from '../lib/date'
+import { formatDateTime, isCheckInWindowOpen } from '../lib/date'
 
 function getStatusLabel(status: string, waitlistPosition?: number): string {
   switch (status) {
@@ -20,15 +19,16 @@ function getStatusLabel(status: string, waitlistPosition?: number): string {
 function getStatusColor(status: string): string {
   switch (status) {
     case 'confirmed': return 'bg-green-50 text-green-700'
-    case 'waitlisted': return 'bg-amber-50 text-amber-700'
-    case 'checked_in': return 'bg-blue-50 text-blue-700'
+    case 'waitlisted': return 'bg-muted/10 text-text'
+    case 'checked_in': return 'bg-primary-dark text-white'
     case 'cancelled': return 'bg-muted/20 text-muted'
-    default: return 'bg-surface text-text'
+    default: return 'bg-card text-text'
   }
 }
 
 export function HostSessionPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
   const { session, loading: sessionLoading, error: sessionError, reload } = useSessionDetail(id!)
   const { roster, loading: rosterLoading, error: rosterError, reload: reloadRoster } = useRoster(id!)
@@ -36,18 +36,19 @@ export function HostSessionPage() {
 
   const [checkInError, setCheckInError] = useState<string | null>(null)
   const [checkingInId, setCheckingInId] = useState<string | null>(null)
+  const [now] = useState(() => Date.now())
 
   useEffect(() => {
     if (authLoading) return
     if (!user) {
-      window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname)}`
+      navigate(`/login?returnTo=${encodeURIComponent(`/host/sessions/${id ?? ''}`)}`, { replace: true })
     }
-  }, [user, authLoading])
+  }, [user, authLoading, navigate, id])
 
   if (authLoading) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-12">
-        <div className="rounded-lg border border-muted/20 bg-surface p-8 text-center">
+        <div className="rounded-2xl border border-muted/15 bg-card shadow-[var(--shadow-card)] p-8 text-center">
           <div className="inline-flex items-center gap-2 text-muted">
             <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -118,7 +119,11 @@ export function HostSessionPage() {
   const waitlisted = roster.filter((r) => r.status === 'waitlisted')
   const checkedIn = roster.filter((r) => r.status === 'checked_in')
 
-  const canCheckIn = session.status === 'scheduled' && !session.past
+  const canCheckIn =
+    session.status === 'scheduled' &&
+    !session.past &&
+    isCheckInWindowOpen(session.startsAt, session.durationMinutes, now)
+  const checkInNotYetOpen = session.status === 'scheduled' && !session.past && !canCheckIn
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12">
@@ -133,6 +138,12 @@ export function HostSessionPage() {
           </Link>
         </div>
       </header>
+
+      {checkInNotYetOpen && (
+        <p className="mb-6 text-sm text-muted">
+          Check-in opens two hours before the session starts.
+        </p>
+      )}
 
       {checkInError && (
         <div className="mb-6 rounded-md bg-red-50 p-4 text-sm text-red-800" role="alert">
@@ -165,7 +176,7 @@ export function HostSessionPage() {
         ) : (
           <ul className="space-y-2" role="list">
             {confirmed.map((entry) => (
-              <li key={entry.bookingId} className="flex items-center justify-between rounded-lg border border-muted/20 bg-surface p-3">
+              <li key={entry.bookingId} className="flex items-center justify-between rounded-2xl border border-muted/15 bg-card shadow-[var(--shadow-card)] p-3">
                 <span className="font-medium text-text">{entry.displayName}</span>
                 <div className="flex items-center gap-2">
                   <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusColor(entry.status)}`}>
@@ -193,7 +204,7 @@ export function HostSessionPage() {
         ) : (
           <ul className="space-y-2" role="list">
             {waitlisted.map((entry) => (
-              <li key={entry.bookingId} className="flex items-center justify-between rounded-lg border border-muted/20 bg-surface p-3">
+              <li key={entry.bookingId} className="flex items-center justify-between rounded-2xl border border-muted/15 bg-card shadow-[var(--shadow-card)] p-3">
                 <span className="font-medium text-text">{entry.displayName}</span>
                 <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusColor(entry.status)}`}>
                   {getStatusLabel(entry.status, entry.waitlistPosition)}
@@ -211,7 +222,7 @@ export function HostSessionPage() {
         ) : (
           <ul className="space-y-2" role="list">
             {checkedIn.map((entry) => (
-              <li key={entry.bookingId} className="flex items-center justify-between rounded-lg border border-muted/20 bg-surface p-3">
+              <li key={entry.bookingId} className="flex items-center justify-between rounded-2xl border border-muted/15 bg-card shadow-[var(--shadow-card)] p-3">
                 <span className="font-medium text-text">{entry.displayName}</span>
                 <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${getStatusColor(entry.status)}`}>
                   {getStatusLabel(entry.status)}

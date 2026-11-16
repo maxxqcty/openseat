@@ -13,6 +13,7 @@ export type ErrorCode =
   | 'network_error'
   | 'not_found'
   | 'rate_limited'
+  | 'server_error'
   | 'unauthorized'
   | 'validation_error'
 

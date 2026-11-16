@@ -1,25 +1,142 @@
 @theme {
   --color-primary: #047857;
+  --color-primary-dark: #064e3b;
+  /* Text on green buttons. Never used as a background. */
   --color-surface: #ffffff;
+  /* Cards, panels, inputs and dialogs: a soft sage, not white. */
+  --color-card: #e9f1ec;
+  --color-cream: #f7f4ee;
   --color-text: #0f172a;
   --color-muted: #475569;
   --color-danger: #b91c1c;
   --color-success: #15803d;
   --color-focus-ring: #0f172a;
 
-  --radius-sm: 0.25rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 16px -4px rgb(15 23 42 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(15 23 42 / 0.05), 0 16px 32px -12px rgb(6 78 59 / 0.25);
 }
 
 @layer base {
+  html {
+    scroll-behavior: smooth;
+    background-color: var(--color-cream);
+  }
+
   body {
-    background-color: var(--color-surface);
+    background-color: var(--color-cream);
     color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2 {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
   }
 
   :focus-visible {
     outline: 2px solid var(--color-focus-ring);
     outline-offset: 2px;
+  }
+}
+
+@keyframes float-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes seat-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .animate-float-in {
+    animation: float-in 0.5s ease-out both;
+  }
+  .animate-seat-pulse {
+    animation: seat-pulse 2.4s ease-in-out infinite;
+  }
+}
+
+/* Decorative utilities and motion for the landing page */
+.bg-dotgrid {
+  background-image: radial-gradient(rgb(255 255 255 / 0.55) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.text-shimmer {
+  background-image: linear-gradient(100deg, #ffffff 20%, #a7f3d0 45%, #ffffff 75%);
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(14px, -18px, 0) rotate(8deg);
+  }
+}
+
+@keyframes bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .animate-drift {
+    animation: drift 14s ease-in-out infinite;
+  }
+  .animate-bob {
+    animation: bob 4s ease-in-out infinite;
+  }
+  .text-shimmer {
+    animation: shimmer 7s linear infinite;
+  }
+}
+
+/* With reduced motion the headline stays a plain white. */
+@media (prefers-reduced-motion: reduce) {
+  .text-shimmer {
+    background-image: none;
+    color: #ffffff;
   }
 }
