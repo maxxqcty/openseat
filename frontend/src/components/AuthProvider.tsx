@@ -8,6 +8,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<User>
   register: (displayName: string, email: string, password: string) => Promise<User>
   logout: () => Promise<void>
+  /** Drop the local user after the API answers 401, so routes send them to sign in. */
+  expireSession: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -49,8 +51,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  function expireSession() {
+    setUser(null)
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, expireSession }}>
       {children}
     </AuthContext.Provider>
   )

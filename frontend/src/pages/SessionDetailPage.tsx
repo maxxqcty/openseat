@@ -7,13 +7,14 @@ import { ErrorState } from '../components/ErrorState'
 import { SeatDots } from '../components/SeatDots'
 import { StatusBadge } from '../components/StatusBadge'
 import { CalendarIcon, ClockIcon, PinIcon, UsersIcon } from '../components/icons'
+import { ApiError } from '../services'
 import { accentFor } from '../lib/accent'
 import { formatDateTime } from '../lib/date'
 
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const { user, expireSession } = useAuth()
   const { session, loading, error, reload } = useSessionDetail(id!)
   const { book, loading: bookingLoading } = useBooking()
   const { cancelBooking, loading: cancellingLoading } = useCancelBooking()
@@ -27,6 +28,19 @@ export function SessionDetailPage() {
       return () => clearTimeout(timer)
     }
   }, [message])
+
+  /**
+   * A 401 means the session cookie is gone or expired. Clear the local user so
+   * `RequireAuth` sends the visitor to sign in with a `returnTo` back here.
+   * Everything else (403, 409, ...) shows the server's message.
+   */
+  function showFailure(err: unknown, fallback: string) {
+    if (err instanceof ApiError && err.code === 'unauthorized') {
+      expireSession()
+      return
+    }
+    setMessage({ type: 'error', text: err instanceof Error ? err.message : fallback })
+  }
 
   async function handleBook() {
     if (!user) {
@@ -42,7 +56,7 @@ export function SessionDetailPage() {
       }
       reload()
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Booking failed' })
+      showFailure(err, 'Booking failed')
     }
   }
 
@@ -53,7 +67,7 @@ export function SessionDetailPage() {
       setMessage({ type: 'success', text: 'Booking cancelled' })
       reload()
     } catch (err) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Cancellation failed' })
+      showFailure(err, 'Cancellation failed')
     } finally {
       setCancellingBookingId(null)
     }
