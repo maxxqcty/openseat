@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session as DbSession
 
-from app.api.deps import get_current_user, get_optional_user
+from app.api.deps import get_current_user
 from app.db import get_db
 from app.models.sessions import Session
 from app.models.users import User
@@ -63,9 +63,10 @@ def _build_detail(
 
 @router.get("", response_model=list[SessionPublic])
 def list_sessions(
+    _user: Annotated[User, Depends(get_current_user)],
     db: Annotated[DbSession, Depends(get_db)],
 ) -> list[Session]:
-    """List upcoming scheduled sessions."""
+    """List upcoming scheduled sessions. Sessions are visible to signed-in users only."""
     return session_service.list_sessions(db)
 
 
@@ -91,10 +92,10 @@ def create_session(
 @router.get("/{session_id}", response_model=SessionDetail)
 def get_session(
     session_id: uuid.UUID,
-    user: Annotated[User | None, Depends(get_optional_user)],
+    user: Annotated[User, Depends(get_current_user)],
     db: Annotated[DbSession, Depends(get_db)],
 ) -> SessionDetail:
-    """Return session detail with seat counts and the caller's booking."""
+    """Return session detail with seat counts and the caller's booking. Signed-in only."""
     session = session_service.get_session(db, session_id)
     return _build_detail(db, session, user)
 

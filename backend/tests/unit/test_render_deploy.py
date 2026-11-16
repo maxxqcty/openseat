@@ -49,7 +49,7 @@ def test_blueprint_defines_a_free_docker_service_and_database() -> None:
     [database] = data["databases"]
 
     assert web["type"] == "web"
-    assert web["name"] == "openseat"
+    assert web["name"] == "open-seat"
     assert web["runtime"] == "docker"
     assert web["plan"] == "free"
     assert web["region"] == "frankfurt"
@@ -134,3 +134,55 @@ def test_render_targets_run_inside_the_backend_environment() -> None:
         "cd $(BACKEND) && uv run python ../scripts/render.py validate" in makefile
     )
     assert "cd $(BACKEND) && uv run python ../scripts/render.py verify $(URL)" in makefile
+
+
+def test_promotion_requires_a_typed_confirmation(capsys: CaptureFixture[str]) -> None:
+    code = render.promote(
+        service_id="srv-example",
+        image="ghcr.io/example/openseat:tag",
+        confirm="yes",
+        token="unused",
+        dry_run=True,
+    )
+
+    assert code == 1
+    assert "confirm promote" in capsys.readouterr().out
+
+
+def test_promotion_dry_run_never_calls_the_network(capsys: CaptureFixture[str]) -> None:
+    code = render.promote(
+        service_id="srv-example",
+        image="ghcr.io/example/openseat:tag",
+        confirm="promote",
+        token=None,
+        dry_run=True,
+    )
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "imageUrl" in output
+    assert "dry run" in output
+
+
+def test_rollback_dry_run_prints_the_deploy_id(capsys: CaptureFixture[str]) -> None:
+    code = render.rollback(
+        service_id="srv-example",
+        deploy_id="dep-123",
+        token=None,
+        dry_run=True,
+    )
+
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "dep-123" in output
+    assert "rollback" in output
+
+
+def test_deploy_hook_dry_run_requires_a_configured_hook(
+    capsys: CaptureFixture[str],
+) -> None:
+    assert render.trigger_deploy_hook(None, dry_run=True) == 1
+    assert "not configured" in capsys.readouterr().out
+
+    assert render.trigger_deploy_hook("https://example.com/hook", dry_run=True) == 0
+    assert "dry run" in capsys.readouterr().out

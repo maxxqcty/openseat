@@ -24,6 +24,12 @@ from app.models.bookings import (
 from app.models.sessions import STATUS_CANCELLED as SESSION_CANCELLED
 from app.models.sessions import Session
 from app.services.sessions import is_past, utc_now
+from app.telemetry import (
+    get_tracer,
+    record_booking,
+    record_promotion,
+    set_span_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,30 +121,34 @@ def _promote_oldest_waiter(
     now: datetime,
 ) -> Booking | None:
     """Move the oldest waitlisted booking to confirmed, if any."""
-    promoted = db.scalar(
-        select(Booking)
-        .where(
-            Booking.session_id == session_id,
-            Booking.status == STATUS_WAITLISTED,
+    with get_tracer().start_as_current_span("promote_waitlist") as span:
+        span.set_attribute("session.id", str(session_id))
+        promoted = db.scalar(
+            select(Booking)
+            .where(
+                Booking.session_id == session_id,
+                Booking.status == STATUS_WAITLISTED,
+            )
+            .order_by(*waitlist_order())
+            .limit(1)
+            .with_for_update(),
         )
-        .order_by(*waitlist_order())
-        .limit(1)
-        .with_for_update(),
-    )
-    if promoted is None:
-        return None
-    promoted.status = STATUS_CONFIRMED
-    promoted.promoted_at = now
-    return promoted
+        if promoted is None:
+            set_span_result(span, "none")
+            return None
+        promoted.status = STATUS_CONFIRMED
+        promoted.promoted_at = now
+        set_span_result(span, "promoted", **{"booking.id": str(promoted.id)})
+        return promoted
 
 
-def cancel_booking(
+def _cancel_booking(
     db: DbSession,
     *,
     booking_id: uuid.UUID,
     user_id: uuid.UUID,
-) -> None:
-    """Cancel the caller's booking and promote the oldest waiter if a seat frees."""
+) -> tuple[str, uuid.UUID | None, Booking | None]:
+    """Cancel a booking and return ``(result, session_id, promoted)``."""
     booking = db.get(Booking, booking_id)
     if booking is None or booking.user_id != user_id:
         raise ApiError(404, "not_found", "Booking not found")
@@ -151,7 +161,7 @@ def cancel_booking(
     db.refresh(booking)
 
     if booking.status == STATUS_CANCELLED:
-        return
+        return "already_cancelled", session.id, None
     if booking.status == STATUS_CHECKED_IN:
         raise ApiError(409, "conflict", "Checked-in bookings cannot be cancelled")
 
@@ -160,6 +170,7 @@ def cancel_booking(
     booking.status = STATUS_CANCELLED
     booking.cancelled_at = now
 
+    promoted: Booking | None = None
     if freed_seat:
         promoted = _promote_oldest_waiter(db, session.id, now=now)
         if promoted is not None:
@@ -172,20 +183,53 @@ def cancel_booking(
             )
 
     db.commit()
+    return "cancelled", session.id, promoted
 
 
-def book_session(
+def cancel_booking(
+    db: DbSession,
+    *,
+    booking_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    """Cancel the caller's booking and promote the oldest waiter if a seat frees."""
+    with get_tracer().start_as_current_span("cancel_booking") as span:
+        span.set_attribute("booking.id", str(booking_id))
+        try:
+            result, session_id, promoted = _cancel_booking(
+                db,
+                booking_id=booking_id,
+                user_id=user_id,
+            )
+        except ApiError as exc:
+            span.set_attribute("error.type", exc.code)
+            set_span_result(span, "rejected")
+            record_booking("rejected")
+            logger.info(
+                "booking_failed",
+                extra={"booking_id": str(booking_id), "reason": exc.code},
+            )
+            raise
+        except Exception:
+            set_span_result(span, "error")
+            record_booking("error")
+            raise
+        if session_id is not None:
+            span.set_attribute("session.id", str(session_id))
+        promotion_result = "promoted" if promoted is not None else "none"
+        set_span_result(span, result, **{"promotion.result": promotion_result})
+        record_booking(result)
+        if result == "cancelled":
+            record_promotion(promotion_result)
+
+
+def _book_session(
     db: DbSession,
     *,
     session_id: uuid.UUID,
     user_id: uuid.UUID,
 ) -> tuple[Booking, int | None]:
-    """Book a seat or the waitlist under a row lock on the session.
-
-    The session row is locked with ``SELECT ... FOR UPDATE`` before the seat
-    count, so concurrent requests serialise and the invariant
-    ``confirmed + checked_in <= capacity`` holds at every commit.
-    """
+    """Book a seat or the waitlist under a row lock on the session."""
     session = db.scalar(
         select(Session).where(Session.id == session_id).with_for_update(),
     )
@@ -219,3 +263,41 @@ def book_session(
     db.commit()
     db.refresh(booking)
     return booking, position
+
+
+def book_session(
+    db: DbSession,
+    *,
+    session_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> tuple[Booking, int | None]:
+    """Book a seat or the waitlist under a row lock on the session.
+
+    The session row is locked with ``SELECT ... FOR UPDATE`` before the seat
+    count, so concurrent requests serialise and the invariant
+    ``confirmed + checked_in <= capacity`` holds at every commit.
+    """
+    with get_tracer().start_as_current_span("book_seat") as span:
+        span.set_attribute("session.id", str(session_id))
+        try:
+            booking, position = _book_session(
+                db,
+                session_id=session_id,
+                user_id=user_id,
+            )
+        except ApiError as exc:
+            span.set_attribute("error.type", exc.code)
+            set_span_result(span, "rejected")
+            record_booking("rejected")
+            logger.info(
+                "booking_failed",
+                extra={"session_id": str(session_id), "reason": exc.code},
+            )
+            raise
+        except Exception:
+            set_span_result(span, "error")
+            record_booking("error")
+            raise
+        set_span_result(span, booking.status, **{"booking.id": str(booking.id)})
+        record_booking(booking.status)
+        return booking, position

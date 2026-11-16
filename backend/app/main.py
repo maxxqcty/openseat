@@ -8,6 +8,8 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from opentelemetry.sdk.metrics.export import MetricReader
+from opentelemetry.sdk.trace.export import SpanExporter
 from sqlalchemy import text
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import RequestResponseEndpoint
@@ -22,6 +24,12 @@ from app.api.sessions import router as sessions_router
 from app.config import Settings, get_settings
 from app.db import get_engine
 from app.errors import error_body, install_error_handlers
+from app.telemetry import (
+    configure_telemetry,
+    http_metrics_middleware,
+    instrument_app,
+    trace_header,
+)
 
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _CSRF_HEADER = "X-Requested-With"
@@ -58,10 +66,27 @@ class SPAStaticFiles(StaticFiles):
             raise
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
-    """Build a configured FastAPI application."""
+def create_app(
+    settings: Settings | None = None,
+    *,
+    span_exporter: SpanExporter | None = None,
+    metric_reader: MetricReader | None = None,
+) -> FastAPI:
+    """Build a configured FastAPI application.
+
+    ``span_exporter`` and ``metric_reader`` exist for tests: pass an in-memory
+    exporter to assert spans without network access.
+    """
     resolved = settings or get_settings()
     _check_database(resolved)
+
+    # Telemetry providers exist before the first request. Export stays off
+    # unless an OTLP endpoint is configured, so tests need no Grafana account.
+    telemetry = configure_telemetry(
+        resolved,
+        span_exporter=span_exporter,
+        metric_reader=metric_reader,
+    )
 
     app = FastAPI(
         title="OpenSeat API",
@@ -70,6 +95,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = resolved
     install_error_handlers(app)
+    instrument_app(app, telemetry)
 
     @app.middleware("http")
     async def csrf_guard(
@@ -89,8 +115,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "forbidden",
                     "Missing or invalid X-Requested-With header",
                 ),
+                headers=trace_header(),
             )
         return await call_next(request)
+
+    # Added last so it is the outermost user middleware: it records the final
+    # status (including CSRF rejections) and stamps every response with the
+    # trace ID that correlates logs, traces, and error bodies.
+    app.middleware("http")(http_metrics_middleware())
 
     app.include_router(health_router)
     app.include_router(auth_router)

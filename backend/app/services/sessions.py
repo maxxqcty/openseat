@@ -148,7 +148,10 @@ def cancel_session(
     session_id: uuid.UUID,
     host_id: uuid.UUID,
 ) -> Session:
-    """Cancel a session and its active bookings. Host-only and idempotent."""
+    """Cancel a session and its pending bookings. Host-only and idempotent.
+
+    Checked-in bookings are kept: they are the record of who attended.
+    """
     session = db.scalar(
         select(Session).where(Session.id == session_id).with_for_update(),
     )
@@ -164,7 +167,7 @@ def cancel_session(
         update(Booking)
         .where(
             Booking.session_id == session_id,
-            Booking.status != BOOKING_STATUS_CANCELLED,
+            Booking.status.in_((BOOKING_STATUS_CONFIRMED, BOOKING_STATUS_WAITLISTED)),
         )
         .values(
             status=BOOKING_STATUS_CANCELLED,

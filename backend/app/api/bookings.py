@@ -98,7 +98,4 @@ def list_my_bookings(
     """Return every booking for the caller, soonest session first."""
     rows = booking_service.list_bookings_for_user(db, user.id)
     positions = booking_service.waitlist_positions(db, [booking for booking, _ in rows])
-    return [
-        _my_booking(booking, session, positions.get(booking.id))
-        for booking, session in rows
-    ]
+    return [_my_booking(booking, session, positions.get(booking.id)) for booking, session in rows]

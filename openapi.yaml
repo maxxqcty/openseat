@@ -116,8 +116,9 @@ paths:
   /api/sessions:
     get:
       tags: [sessions]
-      summary: List scheduled sessions that have not ended
-      security: []
+      summary: List scheduled sessions that have not ended (signed-in users only)
+      security:
+        - sessionCookie: []
       responses:
         '200':
           description: Upcoming sessions ordered by start time.
@@ -127,6 +128,8 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SessionPublic'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
       tags: [sessions]
       summary: Publish a session with the caller as host
@@ -157,17 +160,20 @@ paths:
   /api/sessions/{session_id}:
     get:
       tags: [sessions]
-      summary: Session detail with seat counts and the caller's booking
-      security: []
+      summary: Session detail with seat counts and the caller's booking (signed-in users only)
+      security:
+        - sessionCookie: []
       parameters:
         - $ref: '#/components/parameters/SessionId'
       responses:
         '200':
-          description: Session detail. `my_booking` is null when signed out.
+          description: Session detail. `my_booking` is the caller's active booking, or null.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SessionDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':
@@ -325,6 +331,12 @@ paths:
       responses:
         '200':
           description: Health, including database connectivity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: The database is unavailable (status is degraded).
           content:
             application/json:
               schema:

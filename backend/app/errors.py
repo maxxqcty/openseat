@@ -10,6 +10,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.telemetry import trace_header
+
 
 class ApiError(Exception):
     """Domain error with a stable machine-readable code."""
@@ -49,6 +51,7 @@ async def api_error_handler(request: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content=error_body(exc.code, exc.message, exc.details),
+        headers=trace_header(),
     )
 
 
@@ -62,6 +65,7 @@ async def validation_error_handler(request: Request, exc: Exception) -> JSONResp
             "Request validation failed",
             {"errors": jsonable_encoder(exc.errors())},
         ),
+        headers=trace_header(),
     )
 
 
@@ -86,18 +90,19 @@ async def http_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """Wrap framework 404/405 responses in the documented error envelope."""
     if not isinstance(exc, StarletteHTTPException):
         raise exc
+    headers = {**(exc.headers or {}), **trace_header()}
     if is_api_path(request.url.path):
         code, message = _HTTP_ERRORS.get(exc.status_code, ("http_error", "HTTP error"))
         return JSONResponse(
             status_code=exc.status_code,
             content=error_body(code, message),
-            headers=exc.headers,
+            headers=headers,
         )
     # Preserve the framework's default shape for non-API routes.
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
-        headers=exc.headers,
+        headers=headers,
     )
 
 

@@ -40,3 +40,29 @@ def test_healthz_rejects_unsupported_method(client: TestClient) -> None:
 
     assert response.status_code == 405
     assert response.json() == {"detail": "Method Not Allowed"}
+
+
+def test_healthz_returns_503_when_the_database_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken_engine(url: str) -> object:
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr("app.api.health.get_engine", broken_engine)
+    app = create_app(
+        Settings(
+            app_env="test",
+            app_version="test-version",
+            database_url="postgresql+psycopg://x:x@localhost/none",
+            session_secret="x" * 40,
+        ),
+    )
+    with TestClient(app) as test_client:
+        response = test_client.get("/healthz")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "degraded",
+        "version": "test-version",
+        "database": "unavailable",
+    }

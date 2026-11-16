@@ -33,6 +33,28 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 8
     session_cookie_secure: bool | None = None
 
+    log_level: str = "INFO"
+    otel_service_name: str = "openseat"
+    otel_exporter_otlp_endpoint: str = ""
+    otel_exporter_otlp_headers: str = ""
+    otel_traces_sampler: str = "parentbased_traceidratio"
+    otel_traces_sampler_arg: float = 1.0
+    otel_metric_export_interval_ms: int = 60_000
+
+    @field_validator("otel_traces_sampler_arg", mode="after")
+    @classmethod
+    def clamp_sampler_ratio(cls, value: float) -> float:
+        """Keep the sampler ratio inside the range the SDK accepts."""
+        if not 0.0 <= value <= 1.0:
+            msg = "OTEL_TRACES_SAMPLER_ARG must be between 0 and 1"
+            raise ValueError(msg)
+        return value
+
+    @property
+    def telemetry_enabled(self) -> bool:
+        """Export telemetry only when an OTLP endpoint is configured."""
+        return bool(self.otel_exporter_otlp_endpoint.strip())
+
     @field_validator("database_url", mode="after")
     @classmethod
     def normalize_database_url(cls, value: str | None) -> str | None:

@@ -22,6 +22,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 _RATE_LIMIT = 10
 _RATE_WINDOW_SECONDS = 60.0
+_PRUNE_THRESHOLD = 1024
 _attempts: defaultdict[str, list[float]] = defaultdict(list)
 _attempts_lock = Lock()
 
@@ -36,20 +37,50 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _prune_attempts(now: float) -> None:
+    """Drop expired keys so rotating emails cannot grow the table forever."""
+    for key in [
+        key
+        for key, attempts in _attempts.items()
+        if not attempts or now - attempts[-1] >= _RATE_WINDOW_SECONDS
+    ]:
+        del _attempts[key]
+
+
+def _rate_key(email: str, ip: str) -> str:
+    return f"{email.strip().lower()}|{ip}"
+
+
 def _enforce_rate_limit(email: str, ip: str) -> None:
-    key = f"{email.strip().lower()}|{ip}"
+    """Reject the request when the key already has too many recent failures."""
+    key = _rate_key(email, ip)
     now = monotonic()
     with _attempts_lock:
-        recent = [attempt for attempt in _attempts[key] if now - attempt < _RATE_WINDOW_SECONDS]
-        if len(recent) >= _RATE_LIMIT:
+        if len(_attempts) > _PRUNE_THRESHOLD:
+            _prune_attempts(now)
+        recent = [
+            attempt for attempt in _attempts.get(key, []) if now - attempt < _RATE_WINDOW_SECONDS
+        ]
+        if recent:
             _attempts[key] = recent
+        else:
+            _attempts.pop(key, None)
+        if len(recent) >= _RATE_LIMIT:
             raise ApiError(
                 429,
                 "rate_limited",
                 "Too many login attempts. Try again later.",
             )
-        recent.append(now)
-        _attempts[key] = recent
+
+
+def _record_failed_login(email: str, ip: str) -> None:
+    with _attempts_lock:
+        _attempts[_rate_key(email, ip)].append(monotonic())
+
+
+def _clear_failed_logins(email: str, ip: str) -> None:
+    with _attempts_lock:
+        _attempts.pop(_rate_key(email, ip), None)
 
 
 def _set_session_cookie(response: Response, settings: Settings, token: str) -> None:
@@ -95,10 +126,13 @@ def login(
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     """Sign in and set the HttpOnly session cookie."""
-    _enforce_rate_limit(str(payload.email), _client_ip(request))
-    user = authenticate_user(db, email=str(payload.email), password=payload.password)
+    email, ip = str(payload.email), _client_ip(request)
+    _enforce_rate_limit(email, ip)
+    user = authenticate_user(db, email=email, password=payload.password)
     if user is None:
+        _record_failed_login(email, ip)
         raise ApiError(401, "unauthorized", "Incorrect email or password")
+    _clear_failed_logins(email, ip)
     _set_session_cookie(response, settings, create_access_token(user.id))
 
 

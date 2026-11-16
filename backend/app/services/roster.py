@@ -21,6 +21,7 @@ from app.models.sessions import Session
 from app.models.users import User
 from app.services.bookings import waitlist_positions
 from app.services.sessions import as_utc, require_host, utc_now
+from app.telemetry import get_tracer, record_booking, set_span_result
 
 CHECK_IN_WINDOW_BEFORE_START = timedelta(hours=2)
 
@@ -108,14 +109,14 @@ def get_roster(
     )
 
 
-def check_in_booking(
+def _check_in_booking(
     db: DbSession,
     *,
     booking_id: uuid.UUID,
     host_id: uuid.UUID,
     now: datetime | None = None,
-) -> Booking:
-    """Check in a confirmed guest during the check-in window. Host-only."""
+) -> tuple[Booking, str]:
+    """Check in a booking and return ``(booking, result)``."""
     booking = db.get(Booking, booking_id)
     if booking is None:
         raise ApiError(404, "not_found", "Booking not found")
@@ -129,7 +130,7 @@ def check_in_booking(
     db.refresh(booking)
 
     if booking.status == STATUS_CHECKED_IN:
-        return booking
+        return booking, "already_checked_in"
     if booking.status != STATUS_CONFIRMED:
         raise ApiError(409, "conflict", "Only confirmed bookings can be checked in")
 
@@ -141,4 +142,36 @@ def check_in_booking(
     booking.checked_in_at = current
     db.commit()
     db.refresh(booking)
-    return booking
+    return booking, "checked_in"
+
+
+def check_in_booking(
+    db: DbSession,
+    *,
+    booking_id: uuid.UUID,
+    host_id: uuid.UUID,
+    now: datetime | None = None,
+) -> Booking:
+    """Check in a confirmed guest during the check-in window. Host-only."""
+    with get_tracer().start_as_current_span("check_in") as span:
+        span.set_attribute("booking.id", str(booking_id))
+        try:
+            booking, result = _check_in_booking(
+                db,
+                booking_id=booking_id,
+                host_id=host_id,
+                now=now,
+            )
+        except ApiError as exc:
+            span.set_attribute("error.type", exc.code)
+            set_span_result(span, "rejected")
+            record_booking("rejected")
+            raise
+        except Exception:
+            set_span_result(span, "error")
+            record_booking("error")
+            raise
+        span.set_attribute("session.id", str(booking.session_id))
+        set_span_result(span, result)
+        record_booking(result)
+        return booking

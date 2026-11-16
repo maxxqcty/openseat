@@ -86,7 +86,7 @@ def test_create_rejects_invalid_fields(
     assert response.json()["error"]["code"] == "validation_error"
 
 
-def test_list_is_public_and_orders_by_start(client: TestClient, db_url: str) -> None:
+def test_list_orders_by_start_and_requires_sign_in(client: TestClient, db_url: str) -> None:
     register(client, email="lister@example.com")
     sooner = create_session(client, starts_in_hours=2, title="Sooner")
     later = create_session(client, starts_in_hours=48, title="Later")
@@ -98,7 +98,6 @@ def test_list_is_public_and_orders_by_start(client: TestClient, db_url: str) -> 
         target.starts_at = datetime.now(UTC) - timedelta(hours=2)
         db.commit()
 
-    client.cookies.clear()
     response = client.get("/api/sessions")
 
     assert response.status_code == 200
@@ -107,6 +106,11 @@ def test_list_is_public_and_orders_by_start(client: TestClient, db_url: str) -> 
     assert sooner["id"] in {item["id"] for item in response.json()}
     assert later["id"] in {item["id"] for item in response.json()}
     assert past["id"] not in {item["id"] for item in response.json()}
+
+    client.cookies.clear()
+    anonymous = client.get("/api/sessions")
+    assert anonymous.status_code == 401
+    assert anonymous.json()["error"]["code"] == "unauthorized"
 
 
 def test_detail_returns_counts_and_my_booking(client: TestClient) -> None:
@@ -126,14 +130,15 @@ def test_detail_returns_counts_and_my_booking(client: TestClient) -> None:
     assert detail["past"] is False
 
     client.cookies.clear()
-    anonymous = client.get(f"/api/sessions/{session_id}").json()
-    assert anonymous["my_booking"] is None
-    assert anonymous["confirmed_count"] == 1
+    anonymous = client.get(f"/api/sessions/{session_id}")
+    assert anonymous.status_code == 401
+    assert anonymous.json()["error"]["code"] == "unauthorized"
 
     assert host["id"] == detail["host_id"]
 
 
 def test_detail_unknown_id_returns_404(client: TestClient) -> None:
+    register(client, email="detail-404@example.com")
     response = client.get(f"/api/sessions/{uuid.uuid4()}")
 
     assert response.status_code == 404
@@ -194,7 +199,8 @@ def test_list_and_detail_queries_do_not_scale_with_rows(
         response = client.get("/api/sessions")
     assert response.status_code == 200
     assert len(response.json()) == 3
-    assert len(list_statements) == 1
+    # auth lookup plus the session list itself.
+    assert len(list_statements) == 2
 
     created = create_session(client, capacity=1)
     session_id = str(created["id"])
