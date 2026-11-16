@@ -202,7 +202,7 @@ def main() -> None:
 
     mapping: dict[str, dict[str, object]] = {}
     failed: list[str] = []
-    for local_id, title, labels, depends, body, path in issues:
+    for local_id, title, labels, depends, body, _path in issues:
         all_labels = list(dict.fromkeys([*labels, "needs-grooming"]))
         print(f"Creating {local_id}: {title}")
         try:
@@ -222,7 +222,7 @@ def main() -> None:
     MAP_FILE.write_text(json.dumps(mapping, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {MAP_FILE}")
 
-    for local_id, entry in mapping.items():
+    for _local_id, entry in mapping.items():
         deps = entry.get("depends_on", [])
         resolved = [
             f"#{mapping[dep]['number']}" for dep in deps if dep in mapping

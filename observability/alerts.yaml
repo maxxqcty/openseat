@@ -1,0 +1,212 @@
+# Grafana Alerting provisioning file (unified alerting).
+#
+# Import it in Grafana Cloud or provision it from a Git-synced folder. Replace
+# `grafanacloud-prometheus` with the Prometheus data source UID of your stack.
+# Every rule carries owner, dashboard_url, and runbook_url annotations.
+#
+# Thresholds are documented in observability/README.md and _docs/runbook.md.
+# The production waitlist rule waits 10 minutes; the dev copy waits 2 minutes
+# so a demo can show the alert without a long wait.
+
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: openseat-prod
+    folder: OpenSeat
+    interval: 1m
+    rules:
+      - uid: openseat-down
+        title: OpenSeatDown
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: grafanacloud-prometheus
+            model:
+              editorMode: code
+              expr: up{job="openseat",environment="production"} == 0
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 2m
+        labels:
+          severity: page
+          owner: platform
+          environment: production
+        annotations:
+          summary: OpenSeat is unreachable
+          description: The health endpoint has been down for two minutes.
+          owner: Platform
+          dashboard_url: https://openseat.grafana.net/d/openseat-main/openseat?var-environment=production
+          runbook_url: https://github.com/maxxqcty/openseat/blob/main/_docs/runbook.md#openseatdown
+
+      - uid: openseat-high-error-rate
+        title: OpenSeatHighErrorRate
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: grafanacloud-prometheus
+            model:
+              editorMode: code
+              expr: >-
+                sum(rate(openseat_http_requests_total{environment="production",status=~"5.."}[5m]))
+                / clamp_min(sum(rate(openseat_http_requests_total{environment="production"}[5m])), 0.000001)
+                > 0.05
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        labels:
+          severity: page
+          owner: backend
+          environment: production
+        annotations:
+          summary: More than 5% of requests are failing
+          description: The 5xx ratio has exceeded 5% for five minutes.
+          owner: Backend
+          dashboard_url: https://openseat.grafana.net/d/openseat-main/openseat?var-environment=production
+          runbook_url: https://github.com/maxxqcty/openseat/blob/main/_docs/runbook.md#openseathigherrorrate
+
+      - uid: openseat-booking-errors
+        title: OpenSeatBookingErrors
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: grafanacloud-prometheus
+            model:
+              editorMode: code
+              expr: >-
+                sum(rate(openseat_bookings_total{environment="production",result="error"}[5m])) > 0.05
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        labels:
+          severity: page
+          owner: backend
+          environment: production
+        annotations:
+          summary: Booking attempts are failing
+          description: The booking error rate has exceeded 0.05 per second for ten minutes.
+          owner: Backend
+          dashboard_url: https://openseat.grafana.net/d/openseat-main/openseat?var-environment=production
+          runbook_url: https://github.com/maxxqcty/openseat/blob/main/_docs/runbook.md#openseatbookingerrors
+
+      - uid: openseat-waitlist-stalled
+        title: OpenSeatWaitlistStalled
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: grafanacloud-prometheus
+            model:
+              editorMode: code
+              expr: max(openseat_open_seat_with_waitlist{environment="production"}) > 0
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        labels:
+          severity: page
+          owner: backend
+          environment: production
+        annotations:
+          summary: A free seat exists while someone is waiting
+          description: The open-seat-with-waitlist gauge has stayed above zero for ten minutes.
+          owner: Backend
+          dashboard_url: https://openseat.grafana.net/d/openseat-main/openseat?var-environment=production
+          runbook_url: https://github.com/maxxqcty/openseat/blob/main/_docs/runbook.md#openseatwaitliststalled
+
+      - uid: openseat-overbooked
+        title: OpenSeatOverbooked
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: grafanacloud-prometheus
+            model:
+              editorMode: code
+              expr: max(openseat_overbooked_sessions{environment="production"}) > 0
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        labels:
+          severity: page
+          owner: backend
+          environment: production
+        annotations:
+          summary: A session is overbooked
+          description: Confirmed plus checked-in bookings exceed capacity.
+          owner: Backend
+          dashboard_url: https://openseat.grafana.net/d/openseat-main/openseat?var-environment=production
+          runbook_url: https://github.com/maxxqcty/openseat/blob/main/_docs/runbook.md#openseatoverbooked
+
+  - orgId: 1
+    name: openseat-dev
+    folder: OpenSeat
+    interval: 1m
+    rules:
+      - uid: openseat-waitlist-stalled-dev
+        title: OpenSeatWaitlistStalledDev
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: grafanacloud-prometheus
+            model:
+              editorMode: code
+              expr: max(openseat_open_seat_with_waitlist{environment="development"}) > 0
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: true
+              refId: A
+        noDataState: OK
+        execErrState: Alerting
+        for: 2m
+        labels:
+          severity: page
+          owner: backend
+          environment: development
+        annotations:
+          summary: A free seat exists while someone is waiting (dev)
+          description: Demo-only copy of the production rule with a two-minute window.
+          owner: Backend
+          dashboard_url: https://openseat.grafana.net/d/openseat-main/openseat?var-environment=development
+          runbook_url: https://github.com/maxxqcty/openseat/blob/main/_docs/runbook.md#openseatwaitliststalled

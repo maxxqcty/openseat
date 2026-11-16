@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   backend:
     name: Backend
@@ -94,15 +98,85 @@ jobs:
       - name: Build
         run: npm run build
 
+  build:
+    name: Build image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend, contract, frontend]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      image_ref: ${{ steps.meta.outputs.image_ref }}
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compute the image tag
+        id: meta
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          timestamp="$(date -u +%Y%m%d-%H%M%S)"
+          image_tag="${timestamp}-${short_sha}"
+          image_ref="ghcr.io/${GITHUB_REPOSITORY,,}:${image_tag}"
+          echo "image_tag=${image_tag}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${image_ref}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=openseat-image-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+      - name: Build the root Dockerfile once
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          docker build \
+            --build-arg APP_VERSION="${GITHUB_SHA}" \
+            --build-arg VCS_REF="${GITHUB_SHA}" \
+            -t "openseat:${IMAGE_TAG}" .
+      - name: Save the exact image for the E2E gate
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          docker save "openseat:${IMAGE_TAG}" | gzip > /tmp/openseat-image.tar.gz
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: /tmp/openseat-image.tar.gz
+          retention-days: 1
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the main image to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+          IMAGE_REF: ${{ steps.meta.outputs.image_ref }}
+        run: |
+          docker tag "openseat:${IMAGE_TAG}" "${IMAGE_REF}"
+          docker push "${IMAGE_REF}"
+
   e2e:
     name: E2E
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [backend, frontend]
+    needs: [build]
     env:
       SESSION_SECRET: e2e-session-secret-0123456789abcdef0123456789
+      E2E_IMAGE: openseat-app:latest
     steps:
       - uses: actions/checkout@v7
+      - name: Download the built image
+        uses: actions/download-artifact@v5
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: /tmp
+      - name: Load the exact image used by the build job
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          docker load < /tmp/openseat-image.tar.gz
+          docker tag "openseat:${IMAGE_TAG}" openseat-app:latest
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -113,7 +187,7 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
-      - name: Run the suite against the Compose stack
+      - name: Run the suite against the built image
         run: make e2e PYTHON=python3
       - name: Upload failure artifacts
         if: failure()
@@ -124,3 +198,38 @@ jobs:
             e2e/playwright-report
             e2e/test-results
           retention-days: 7
+
+  deploy:
+    name: Deploy demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: demo
+      url: https://open-seat.onrender.com
+    env:
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.5"
+          enable-cache: true
+      - name: Install backend tooling
+        working-directory: backend
+        run: uv sync --locked
+      - name: Trigger the guarded Render deploy
+        if: env.RENDER_DEPLOY_HOOK_URL != ''
+        working-directory: backend
+        run: uv run python ../scripts/render.py deploy-hook
+      - name: Warn when the deploy hook is missing
+        if: env.RENDER_DEPLOY_HOOK_URL == ''
+        run: |
+          echo "::warning::RENDER_DEPLOY_HOOK_URL is not set. Configure the Render deploy hook to guarantee the E2E gate; checksPass auto-deploy remains the fallback."
+      - name: Verify the deployed commit
+        if: env.RENDER_DEPLOY_HOOK_URL != ''
+        working-directory: backend
+        env:
+          EXPECTED_VERSION: ${{ github.sha }}
+        run: uv run python ../scripts/render.py verify

@@ -39,10 +39,17 @@ def require(command: str) -> str:
     return path
 
 
-def start(command: list[str], cwd: Path, name: str) -> Process:
+def start(
+    command: list[str],
+    cwd: Path,
+    name: str,
+    env: dict[str, str] | None = None,
+) -> Process:
     """Start a child process and report it."""
     print(f"[dev] starting {name}: {' '.join(command)}", flush=True)
     options: dict[str, object] = {"cwd": cwd}
+    if env:
+        options["env"] = {**os.environ, **env}
     if os.name == "nt":
         options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
     else:
@@ -93,7 +100,13 @@ def main() -> int:
         children.append(
             (
                 "web",
-                start([npm, "run", "dev"], FRONTEND, "web on http://localhost:5173"),
+                start(
+                    [npm, "run", "dev"],
+                    FRONTEND,
+                    "web on http://localhost:5173",
+                    # Use the real API through the Vite proxy, not the in-memory mock.
+                    env={"VITE_API_MODE": "http"},
+                ),
             )
         )
 

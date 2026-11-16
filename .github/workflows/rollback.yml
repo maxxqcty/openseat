@@ -1,0 +1,73 @@
+name: Rollback
+
+# Roll back an image-backed Render service to a previous deploy without
+# rebuilding. The free Git-backed demo rolls back from the Render dashboard;
+# see deploy/render/README.md and _docs/runbook.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_id:
+        description: "Render deploy ID to restore (dep-...)"
+        required: true
+        type: string
+      confirm:
+        description: 'Type "rollback" to confirm'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rollback-production
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Restore a previous deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.RENDER_URL }}
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+      RENDER_URL: ${{ vars.RENDER_URL }}
+    steps:
+      - name: Require the typed confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "rollback" ]; then
+            echo "::error::Type rollback in the confirmation field."
+            exit 1
+          fi
+      - name: Validate the deploy ID
+        env:
+          DEPLOY_ID: ${{ inputs.deploy_id }}
+        run: |
+          if ! printf '%s' "$DEPLOY_ID" | grep -Eq '^dep-[A-Za-z0-9]+$'; then
+            echo "::error::deploy_id must look like dep-..."
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.5"
+          enable-cache: true
+      - name: Install backend tooling
+        working-directory: backend
+        run: uv sync --locked
+      - name: Restore the previous deploy
+        working-directory: backend
+        env:
+          DEPLOY_ID: ${{ inputs.deploy_id }}
+        run: |
+          uv run python ../scripts/render.py rollback \
+            --service-id "$RENDER_SERVICE_ID" \
+            --deploy-id "$DEPLOY_ID"
+      - name: Smoke-test the rollback
+        working-directory: backend
+        run: uv run python ../scripts/render.py verify "$RENDER_URL"

@@ -1,0 +1,90 @@
+name: Promote
+
+# Paid path: promote the exact GHCR image from CI to an image-backed Render
+# service. The free plan deploys from Git and does not support this workflow;
+# see deploy/render/README.md. The `production` GitHub Environment must have a
+# required reviewer, and the operator must type `promote` to continue.
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Exact GHCR tag from a successful CI build (YYYYMMDD-HHMMSS-shortsha)"
+        required: true
+        type: string
+      confirm:
+        description: 'Type "promote" to confirm'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: promote-production
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote the stored image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.RENDER_URL }}
+    env:
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ vars.RENDER_SERVICE_ID }}
+      RENDER_URL: ${{ vars.RENDER_URL }}
+    steps:
+      - name: Require the typed confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "promote" ]; then
+            echo "::error::Type promote in the confirmation field."
+            exit 1
+          fi
+      - name: Validate the image tag
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          if ! printf '%s' "$IMAGE_TAG" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9a-f]{7}$'; then
+            echo "::error::image_tag must look like YYYYMMDD-HHMMSS-shortsha."
+            exit 1
+          fi
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.5"
+          enable-cache: true
+      - name: Install backend tooling
+        working-directory: backend
+        run: uv sync --locked
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Confirm the image exists (no rebuild)
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          image_ref="ghcr.io/${GITHUB_REPOSITORY,,}:${IMAGE_TAG}"
+          docker manifest inspect "$image_ref" >/dev/null
+          echo "Promoting $image_ref"
+      - name: Deploy the same digest
+        working-directory: backend
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          image_ref="ghcr.io/${GITHUB_REPOSITORY,,}:${IMAGE_TAG}"
+          uv run python ../scripts/render.py promote \
+            --service-id "$RENDER_SERVICE_ID" \
+            --image "$image_ref" \
+            --confirm promote
+      - name: Smoke-test the promotion
+        working-directory: backend
+        run: uv run python ../scripts/render.py verify "$RENDER_URL"

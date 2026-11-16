@@ -26,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 E2E_DIR = ROOT / "e2e"
 BASE_URL = os.environ.get("E2E_BASE_URL")
+E2E_IMAGE = os.environ.get("E2E_IMAGE")
 LOCAL_URL = "http://localhost:8080"
 HEALTH_TIMEOUT_SECONDS = 240
 
@@ -35,7 +36,12 @@ def log(message: str) -> None:
     print(f"==> {message}", flush=True)
 
 
-def run(command: list[str], *, cwd: Path = ROOT, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run(
+    command: list[str],
+    *,
+    cwd: Path = ROOT,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
     """Run a command, echoing it first."""
     print(f"$ {' '.join(command)}", flush=True)
     return subprocess.run(command, cwd=cwd, check=check, text=True)
@@ -108,8 +114,15 @@ def main() -> int:
     try:
         log("dropping the previous database so the run starts from an empty schema")
         compose("down", "--volumes", "--remove-orphans", check=False)
-        log("building and starting the stack")
-        compose("up", "--detach", "--build")
+        if E2E_IMAGE:
+            # CI builds the image once in the build job, then loads that exact
+            # artifact here. Never rebuild a different image for the E2E gate.
+            os.environ["OPENSEAT_IMAGE"] = E2E_IMAGE
+            log(f"starting the stack from the prebuilt image {E2E_IMAGE}")
+            compose("up", "--detach", "--no-build")
+        else:
+            log("building and starting the stack")
+            compose("up", "--detach", "--build")
         wait_for_health(target)
         result = run([require("npm"), "exec", "--", "playwright", "test"], cwd=E2E_DIR, check=False)
         return result.returncode

@@ -18,6 +18,9 @@ Frankfurt from the root `Dockerfile`.
 - Free services can send private-network traffic to the database, but cannot
   receive private-network traffic. The database therefore uses
   `ipAllowList: []` (private network only).
+- The free plan deploys from Git. It cannot promote a prebuilt image, so the
+  GHCR image is the record of what E2E tested, not the deploy artifact on this
+  plan.
 
 Because of the single-database limit, this Blueprint deploys one
 production/demo environment. Development stays local:
@@ -35,30 +38,92 @@ make seed            # uses the published localhost:5432 database
 3. Render generates `SESSION_SECRET`, wires `DATABASE_URL` from
    `openseat-db`, and builds the image.
 4. Open the service URL and check
-   `https://openseat-1x8l.onrender.com/healthz`.
+   `https://open-seat.onrender.com/healthz`.
    `version` is the deployed Git commit because the app falls back to Render's
    `RENDER_GIT_COMMIT`.
+5. Add the optional telemetry variables from `.env.example`
+   (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and the
+   sampling settings) in the Render dashboard. Export is disabled while the
+   endpoint is empty.
 
-No Fly/GHCR setup is required.
+No Fly/GHCR setup is required for the free demo.
 
-## Deploys and rollback
+## Deploys
 
-Merging to `main` triggers a deploy only after the repository's GitHub checks
-pass (`autoDeployTrigger: checksPass`). If Render does not detect the checks,
-change the setting to `commit` in the dashboard.
+`render.yaml` sets `autoDeployTrigger: checksPass`, so a merge to `main`
+deploys only after Render sees the repository's GitHub checks pass.
 
-- **Rollback:** open the service's **Deploys** page, pick a previous successful
-  deploy, and choose **Rollback**. Free services can roll back to the two most
-  recent previous deploys.
-- **Deploy a specific commit:** use **Manual Deploy > Deploy a specific commit**
-  in the dashboard.
-- **Verify:** `make render-verify` (defaults to the demo URL) or
-  `make render-verify URL=https://<service>.onrender.com`. Set
-  `EXPECTED_VERSION=<commit>` to assert the deployed version.
+The CI workflow adds a second, stricter gate:
 
-There is no image-promotion pipeline: Render builds the root Dockerfile from
-the selected commit. If you later need dev/prod image promotion, use a paid
-workspace and an image registry; see the out-of-scope notes in issue #16.
+1. The build job builds the root Dockerfile once and saves that image.
+2. The E2E job loads the saved image and runs Playwright against it.
+3. The deploy job runs only on `main`, only after E2E, and calls the Render
+   deploy hook when `RENDER_DEPLOY_HOOK_URL` is set.
+4. The workflow polls `/healthz` with `EXPECTED_VERSION` set to the commit SHA.
+
+Add the hook as a GitHub repository secret:
+
+1. In Render, open the service, then **Settings > Deploy Hook**, and copy the
+   URL.
+2. In GitHub, open **Settings > Secrets and variables > Actions** and add
+   `RENDER_DEPLOY_HOOK_URL`.
+3. Re-run the workflow. Without the secret the job prints a warning and skips
+   the hook; `checksPass` remains the fallback.
+
+The hook URL is a secret. Never commit it, print it, or paste it into an issue.
+
+## Rollback
+
+On the free plan:
+
+1. Open the service's **Deploys** page.
+2. Pick a previous successful deploy and choose **Rollback**. Free services can
+   roll back to the two most recent previous deploys.
+3. Confirm `/healthz` and run the booking smoke test.
+
+On the paid image-backed path, use the workflow, which redeploys a previous
+Render deploy and requires a typed confirmation:
+
+```bash
+gh workflow run rollback.yml \
+  -f deploy_id=dep-xxxxxxxxxxxx \
+  -f confirm=rollback
+```
+
+Migrations must stay backward compatible for one release (expand, then
+contract), because a rollback runs the previous image against the current
+schema.
+
+## Verify a deploy
+
+```bash
+make render-validate
+make render-verify URL=https://open-seat.onrender.com
+EXPECTED_VERSION=<commit> make render-verify URL=https://open-seat.onrender.com
+```
+
+`validate` checks the Blueprint offline. `verify` polls the public URL for up
+to three minutes to cover a cold start. Set `EXPECTED_VERSION` to assert the
+deployed commit.
+
+## Paid image promotion
+
+The free plan cannot deploy a prebuilt image. With a paid workspace, switch the
+service to an image-backed deploy and use
+`.github/workflows/promote.yml`. It:
+
+- promotes the exact GHCR digest that passed E2E, without rebuilding;
+- requires the `production` GitHub Environment and its required reviewer;
+- requires the operator to type `promote`.
+
+```bash
+gh workflow run promote.yml \
+  -f image_tag=YYYYMMDD-HHMMSS-<shortsha> \
+  -f confirm=promote
+```
+
+`scripts/render.py promote` performs the API call. The free demo keeps the Git
+path; the promotion workflow is documented and tested but not active.
 
 ## Adding a second environment (paid)
 

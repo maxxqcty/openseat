@@ -1,13 +1,18 @@
-"""Validate and verify the Render deployment.
+"""Validate, deploy, promote, roll back, and verify the Render deployment.
 
-Render builds the root Dockerfile through ``render.yaml``. There is no
-platform-specific deploy script: merging to ``main`` (after CI) triggers a
-deploy, and the dashboard rolls back to a previous deploy.
+Render builds the root Dockerfile through ``render.yaml``. The GitHub workflow
+triggers a deploy only after the E2E gate. The free plan deploys from Git; the
+paid image-backed path promotes the same GHCR digest without rebuilding.
 
 Usage::
 
     python scripts/render.py validate
     python scripts/render.py verify
+    RENDER_DEPLOY_HOOK_URL=... python scripts/render.py deploy-hook
+    RENDER_API_KEY=... python scripts/render.py promote --service-id srv-... \
+        --image ghcr.io/owner/openseat:tag --confirm promote
+    RENDER_API_KEY=... python scripts/render.py rollback --service-id srv-... \
+        --deploy-id dep-...
     RENDER_URL=https://your-service.onrender.com python scripts/render.py verify
 """
 
@@ -26,7 +31,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 BLUEPRINT = ROOT / "render.yaml"
-DEFAULT_URL = "https://openseat-1x8l.onrender.com"
+DEFAULT_URL = "https://open-seat.onrender.com"
 HEALTH_TIMEOUT_SECONDS = 180
 
 
@@ -192,11 +197,106 @@ def verify(url: str, expected_version: str | None = None) -> int:
     return 0
 
 
+def _api_request(
+    method: str,
+    path: str,
+    token: str,
+    payload: dict[str, Any] | None = None,
+) -> tuple[int, str]:
+    """Call the Render API and return ``(status, body)``."""
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    request = urllib.request.Request(
+        f"https://api.render.com/v1{path}",
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "openseat-render-cli",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return response.status, response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8")
+
+
+def trigger_deploy_hook(hook_url: str | None, *, dry_run: bool = False) -> int:
+    """Call a Render deploy hook after CI and E2E have passed."""
+    if not hook_url:
+        print("RENDER_DEPLOY_HOOK_URL is not configured")
+        return 1
+    if dry_run:
+        print("POST <RENDER_DEPLOY_HOOK_URL> (dry run; the hook is a secret)")
+        return 0
+    request = urllib.request.Request(
+        hook_url,
+        data=b"",
+        method="POST",
+        headers={"User-Agent": "openseat-render-deploy"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            print(f"deploy hook accepted with status {response.status}")
+            return 0
+    except urllib.error.URLError as exc:
+        print(f"deploy hook failed: {exc}")
+        return 1
+
+
+def promote(
+    *,
+    service_id: str,
+    image: str,
+    confirm: str,
+    token: str | None,
+    dry_run: bool = False,
+) -> int:
+    """Promote the exact GHCR digest to the paid image-backed service."""
+    if confirm != "promote":
+        print("refusing to promote: pass --confirm promote")
+        return 1
+    payload = {"imageUrl": image}
+    if dry_run:
+        print(f"POST /v1/services/{service_id}/deploys {json.dumps(payload)} (dry run)")
+        return 0
+    if not token:
+        print("RENDER_API_KEY is not configured")
+        return 1
+    status, body = _api_request("POST", f"/services/{service_id}/deploys", token, payload)
+    print(f"promote status={status} body={body}")
+    return 0 if 200 <= status < 300 else 1
+
+
+def rollback(
+    *,
+    service_id: str,
+    deploy_id: str,
+    token: str | None,
+    dry_run: bool = False,
+) -> int:
+    """Roll back to a previous Render deploy without rebuilding."""
+    payload = {"deployId": deploy_id}
+    if dry_run:
+        print(f"POST /v1/services/{service_id}/rollback {json.dumps(payload)} (dry run)")
+        return 0
+    if not token:
+        print("RENDER_API_KEY is not configured")
+        return 1
+    status, body = _api_request("POST", f"/services/{service_id}/rollback", token, payload)
+    print(f"rollback status={status} body={body}")
+    return 0 if 200 <= status < 300 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     """Parse arguments and run the requested command."""
-    parser = argparse.ArgumentParser(description="Validate and verify the Render deployment.")
+    parser = argparse.ArgumentParser(description="Validate and operate the Render deployment.")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
     subparsers.add_parser("validate", help="check render.yaml without contacting Render")
+
     verify_parser = subparsers.add_parser("verify", help="poll the public /healthz endpoint")
     verify_parser.add_argument(
         "url",
@@ -204,10 +304,45 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("RENDER_URL", DEFAULT_URL),
         help="service URL (default: RENDER_URL or %(default)s)",
     )
+
+    hook_parser = subparsers.add_parser("deploy-hook", help="trigger the guarded deploy hook")
+    hook_parser.add_argument("--dry-run", action="store_true")
+
+    promote_parser = subparsers.add_parser("promote", help="deploy an image to a paid service")
+    promote_parser.add_argument("--service-id", required=True)
+    promote_parser.add_argument("--image", required=True)
+    promote_parser.add_argument("--confirm", required=True)
+    promote_parser.add_argument("--dry-run", action="store_true")
+
+    rollback_parser = subparsers.add_parser("rollback", help="redeploy a previous Render deploy")
+    rollback_parser.add_argument("--service-id", required=True)
+    rollback_parser.add_argument("--deploy-id", required=True)
+    rollback_parser.add_argument("--dry-run", action="store_true")
+
     args = parser.parse_args(argv)
 
     if args.command == "validate":
         return validate()
+    if args.command == "deploy-hook":
+        return trigger_deploy_hook(
+            os.environ.get("RENDER_DEPLOY_HOOK_URL"),
+            dry_run=args.dry_run,
+        )
+    if args.command == "promote":
+        return promote(
+            service_id=args.service_id,
+            image=args.image,
+            confirm=args.confirm,
+            token=os.environ.get("RENDER_API_KEY"),
+            dry_run=args.dry_run,
+        )
+    if args.command == "rollback":
+        return rollback(
+            service_id=args.service_id,
+            deploy_id=args.deploy_id,
+            token=os.environ.get("RENDER_API_KEY"),
+            dry_run=args.dry_run,
+        )
     return verify(args.url, os.environ.get("EXPECTED_VERSION"))
 
 

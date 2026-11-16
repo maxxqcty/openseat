@@ -22,6 +22,7 @@ services:
       - openseat-network
 
   app:
+    image: ${OPENSEAT_IMAGE:-openseat-app:latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -34,6 +35,12 @@ services:
       DATABASE_URL: postgresql+psycopg://openseat:openseat@db:5432/openseat
       SESSION_SECRET: ${SESSION_SECRET}
       SESSION_COOKIE_SECURE: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-openseat}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}
     ports:
       - "8080:8080"
     depends_on:
