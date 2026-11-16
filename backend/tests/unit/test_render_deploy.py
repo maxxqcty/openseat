@@ -49,7 +49,7 @@ def test_blueprint_defines_a_free_docker_service_and_database() -> None:
     [database] = data["databases"]
 
     assert web["type"] == "web"
-    assert web["name"] == "open-seat"
+    assert web["name"] == "openseat"
     assert web["runtime"] == "docker"
     assert web["plan"] == "free"
     assert web["region"] == "frankfurt"
