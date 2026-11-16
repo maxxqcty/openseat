@@ -10,6 +10,22 @@ from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def normalize_database_url(value: str | None) -> str | None:
+    """Accept the libpq form ``postgres://`` used by hosted providers.
+
+    Render and other platforms expose a ``postgres://`` (or ``postgresql://``)
+    connection string; SQLAlchemy needs an explicit dialect, otherwise it falls
+    back to ``psycopg2``, which this project does not install. Add the psycopg
+    driver before the first connect. Shared by the app and Alembic.
+    """
+    if value is None:
+        return None
+    for prefix in ("postgres://", "postgresql://"):
+        if value.startswith(prefix):
+            return "postgresql+psycopg://" + value[len(prefix) :]
+    return value
+
+
 class Settings(BaseSettings):
     """Runtime configuration.
 
@@ -58,18 +74,8 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="after")
     @classmethod
     def normalize_database_url(cls, value: str | None) -> str | None:
-        """Accept the libpq form ``postgres://`` used by hosted providers.
-
-        Render and other platforms expose a ``postgres://`` (or
-        ``postgresql://``) connection string; SQLAlchemy needs an explicit
-        dialect, so add the psycopg driver before the first connect.
-        """
-        if value is None:
-            return None
-        for prefix in ("postgres://", "postgresql://"):
-            if value.startswith(prefix):
-                return "postgresql+psycopg://" + value[len(prefix) :]
-        return value
+        """Apply the shared libpq-to-psycopg URL normalization."""
+        return normalize_database_url(value)
 
     @model_validator(mode="after")
     def validate_session_secret(self) -> Settings:

@@ -8,6 +8,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from app.config import normalize_database_url
 from app.models import Base
 
 config = context.config
@@ -24,7 +25,8 @@ def _database_url() -> str:
     url = os.environ.get("DATABASE_URL")
     if not url:
         raise RuntimeError("DATABASE_URL is required to run migrations")
-    return url
+    # Render injects ``postgres://``; without a driver SQLAlchemy picks psycopg2.
+    return normalize_database_url(url) or url
 
 
 def run_migrations_offline() -> None:
