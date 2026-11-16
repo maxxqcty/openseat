@@ -68,7 +68,8 @@ These rules are normative. Tests must cover each one.
 5. Cancelling a confirmed booking promotes the **oldest** active waitlisted
    booking in the same transaction, and sets `promoted_at`.
 6. Cancelling a waitlisted booking removes it and does not promote anyone.
-7. A host may cancel a session; all active bookings become `cancelled`.
+7. A host may cancel a session; all confirmed and waitlisted bookings become
+   `cancelled`. Checked-in bookings stay as the attendance record.
 8. Check-in is allowed only for a confirmed booking, from 2 hours before the
    start until the session ends.
 9. Authorization is ownership-based. Any authenticated user may create a
@@ -101,9 +102,10 @@ status. Past sessions remain viewable but cannot be booked.
 
 ### Guest
 
-1. As a visitor, I can browse upcoming sessions without an account.
-2. As a visitor, I can open a session and see its details, seat count, and
-   whether I am signed in.
+1. As a visitor, I see what OpenSeat is and can sign in or create an account
+   from a dialog. I cannot see sessions until I am signed in.
+2. As a signed-in guest, I can open a session and see its details and seat
+   count.
 3. As a guest, I can sign up, log in, and log out.
 4. As a guest, I can book a seat in a session with space and see a confirmation.
 5. As a guest, I can join the waitlist when the session is full and see my
@@ -135,7 +137,7 @@ These scenarios are the source of the E2E tests and the demo script.
 2. Guest A signs up in a second browser context and opens the session.
 3. Guest A books the seat and sees **Confirmed**.
 4. The host roster shows Guest A as confirmed.
-5. The public session page shows 0 seats left.
+5. The session page shows 0 seats left.
 
 ### B. Waitlist and promotion
 
@@ -203,10 +205,11 @@ These scenarios are the source of the E2E tests and the demo script.
 - Fields: title (3–120 chars), description (0–2000 chars), `starts_at` (future,
   UTC), duration (15–480 minutes), capacity (1–100), location (3–200 chars).
 - A host may create unlimited sessions.
-- Public list shows scheduled sessions that have not ended, ordered by
-  `starts_at`.
-- Session detail returns seat counts and the caller's booking state if signed
-  in.
+- The list shows scheduled sessions that have not ended, ordered by
+  `starts_at`. Sessions are visible to signed-in users only; visitors see the
+  landing page and a sign-in prompt.
+- Session detail returns seat counts and the caller's booking state. It also
+  requires sign-in.
 - Only the host may cancel. Cancelling sets status to `cancelled` and cancels
   all active bookings. It is idempotent.
 - Editing a published session is out of scope; cancel and recreate instead.
@@ -272,9 +275,9 @@ Base path: `/api`. All responses are JSON. Errors use:
 | POST | `/api/auth/login` | public | 204 + cookie | 401 bad credentials, 429 rate limit |
 | POST | `/api/auth/logout` | user | 204 | Clears cookie |
 | GET | `/api/auth/me` | user | 200 user | 401 when signed out |
-| GET | `/api/sessions` | public | 200 list | Upcoming, scheduled |
+| GET | `/api/sessions` | signed in | 200 list, 401 | Upcoming, scheduled |
 | POST | `/api/sessions` | user | 201 session | Caller becomes host |
-| GET | `/api/sessions/{id}` | public | 200 detail | Includes counts and `my_booking` |
+| GET | `/api/sessions/{id}` | signed in | 200 detail, 401, 404 | Includes counts and `my_booking` |
 | POST | `/api/sessions/{id}/cancel` | host | 200 session | Idempotent |
 | GET | `/api/sessions/{id}/bookings` | host | 200 roster | Confirmed/waitlisted/checked-in |
 | POST | `/api/sessions/{id}/bookings` | user | 201 booking | Confirmed or waitlisted |

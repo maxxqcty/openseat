@@ -13,7 +13,7 @@
 
 services:
   - type: web
-    name: openseat
+    name: open-seat
     runtime: docker
     plan: free
     region: frankfurt
@@ -36,6 +36,28 @@ services:
           property: connectionString
       # APP_VERSION is intentionally absent: the app falls back to Render's
       # RENDER_GIT_COMMIT so /healthz reports the deployed commit.
+      #
+      # Telemetry is off while the endpoint is empty. Set both OTLP values in
+      # the dashboard (Grafana Cloud -> OpenTelemetry -> Configure). The header
+      # value is a secret and is never committed.
+      # Render terminates TLS in a proxy. Trust its X-Forwarded-For so the login
+      # throttle sees real client IPs instead of one shared proxy address.
+      - key: FORWARDED_ALLOW_IPS
+        value: "*"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: OTEL_SERVICE_NAME
+        value: openseat
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+      - key: OTEL_EXPORTER_OTLP_HEADERS
+        sync: false
+      - key: OTEL_TRACES_SAMPLER
+        value: parentbased_traceidratio
+      # Production samples 10% of traces; errors are still visible through
+      # metrics and logs. Development and local Compose use 100%.
+      - key: OTEL_TRACES_SAMPLER_ARG
+        value: "0.1"
 
 databases:
   - name: openseat-db

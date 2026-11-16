@@ -37,7 +37,7 @@ numbers match the GitHub issue numbers in this repository.
 | M2 Core | 04–09 | Auth, sessions, booking, waitlist, promotion, check-in |
 | M3 Contract and data | 10–11 | Contract check, seed, clean migrations |
 | M4 Integration | 12–14 | Real UI, one container, browser tests |
-| M5 Delivery | 15–16 | Public dev/prod, promotion, rollback |
+| M5 Delivery | 15–16 | Public demo, guarded deploy, promotion, rollback |
 | M6 Operations | 17–19 | Telemetry, dashboard, alerts, agent fix |
 | M7 Release | 20 | Evidence, video, audit |
 
@@ -52,8 +52,21 @@ numbers match the GitHub issue numbers in this repository.
 | in review | QA is verifying |
 | done | QA passed and the issue is closed |
 
-Issue 01 is **done**. Issues 02–20 are **open** in the GitHub tracker;
-grooming and implementation continue in dependency order.
+All 20 issues are **implemented and verified in v1.0.0**. The GitHub tracker is
+updated separately; local issue sources stay as the record of the acceptance
+criteria. External evidence that needs accounts or humans (Grafana captures, a
+live chaos run, the demo video, peer reviews) is tracked in
+`_docs/evidence/README.md` and is not claimed as complete.
+
+## Known deviations from the issue text
+
+| Issue | Constraint | What shipped | Why |
+| --- | --- | --- | --- |
+| 13 | `python:3.12-slim` base | Alpine with Python 3.12, non-root, healthcheck | Smaller image and faster Render cold starts |
+| 15/16 | Separate public dev and prod environments | One public demo plus local Compose; paid two-environment path documented | Render free tier allows one web service and one free Postgres |
+| 16 | Image promotion on the free plan | Git deploy on free; GHCR digest promotion workflow on paid | Render free tier cannot deploy a prebuilt image |
+| 16 | Deploy hook always runs | Runs when `RENDER_DEPLOY_HOOK_URL` is set; otherwise warns | The hook URL is an operator-supplied secret |
+| 20 | Demo video and three peer reviews | Script and checklist only; marked pending | Requires a recording and human reviewers |
 
 ## Creating the issues
 

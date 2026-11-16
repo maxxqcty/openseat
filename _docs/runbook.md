@@ -1,30 +1,38 @@
 # OpenSeat Runbook
 
-Operational guide for OpenSeat dev and prod. Every alert links to an anchor here.
+Operational guide for the OpenSeat demo and local development. Every alert in
+`observability/alerts.yaml` links to an anchor here.
 
 ## On-call at a glance
 
 1. Acknowledge the alert in Grafana.
 2. Open the dashboard and identify the affected environment and version.
 3. Follow the alert section below. Prefer rollback over live debugging.
-4. If the on-call agent opened a branch, review it; never deploy it automatically.
+4. If the on-call worker opened a branch, review it; never deploy it
+   automatically.
 5. Write a short incident note and link it from the issue or PR.
 
 Severity: **page** means user-visible impact. **ticket** means investigate the
 next working day.
 
+The source of truth for thresholds and annotations is
+`observability/alerts.yaml`. The dashboard is `observability/dashboard.json`.
+Setup instructions are in `observability/README.md`.
+
 ## Alerts
 
-| Alert | Condition | Severity | Owner |
-| --- | --- | --- | --- |
-| `OpenSeatDown` | `up{job="openseat"} == 0` for 2m | page | Platform |
-| `OpenSeatHighErrorRate` | 5xx ratio > 5% for 10m | page | Backend |
-| `OpenSeatBookingErrors` | booking `result="error"` rate > 0.05/s for 10m | page | Backend |
-| `OpenSeatWaitlistStalled` | `openseat_open_seat_with_waitlist > 0` for 10m | page | Backend |
-| `OpenSeatOverbooked` | `openseat_overbooked_sessions > 0` for 1m | page | Backend |
+| Alert | Condition | For | Severity | Owner |
+| --- | --- | --- | --- | --- |
+| `OpenSeatDown` | `up{job="openseat"} == 0` | 2m | page | Platform |
+| `OpenSeatHighErrorRate` | 5xx ratio > 5% | 5m | page | Backend |
+| `OpenSeatBookingErrors` | booking `result="error"` (unexpected failure; expected 4xx rejections are `rejected`) rate > 0.05/s | 10m | page | Backend |
+| `OpenSeatWaitlistStalled` | `openseat_open_seat_with_waitlist > 0` | 10m | page | Backend |
+| `OpenSeatWaitlistStalledDev` | same gauge, `environment="development"` | 2m | page | Backend |
+| `OpenSeatOverbooked` | `openseat_overbooked_sessions > 0` | 1m | page | Backend |
 
-Every alert must carry `owner`, `dashboard_url`, and `runbook_url` annotations.
-The source of truth is `observability/alerts.yaml`, which lands in issue #18.
+Every alert carries `owner`, `dashboard_url`, and `runbook_url` annotations.
+The development copy of the waitlist rule exists only so a demo can show the
+alert quickly; production keeps the ten-minute window.
 
 ## OpenSeatDown
 
@@ -37,8 +45,8 @@ The source of truth is `observability/alerts.yaml`, which lands in issue #18.
 5. If the database is down, restore service before rolling back the app.
 
 ```bash
-curl -fsS https://<service>.onrender.com/healthz
-make render-verify URL=https://<service>.onrender.com
+curl -fsS https://open-seat.onrender.com/healthz
+make render-verify URL=https://open-seat.onrender.com
 ```
 
 The Render dashboard shows the same data under **Logs**, **Events**, and
@@ -51,7 +59,8 @@ The Render dashboard shows the same data under **Logs**, **Events**, and
 1. Group by route and status in Grafana.
 2. Pick one failing trace and follow it to the error log.
 3. Check whether the failures started with the last deploy.
-4. Roll back if the error rate is above 10% or the cause is unclear after 10 minutes.
+4. Roll back if the error rate is above 10% or the cause is unclear after
+   10 minutes.
 
 ```promql
 sum by (route, status) (rate(openseat_http_requests_total{status=~"5.."}[5m]))
@@ -68,13 +77,14 @@ sum by (route, status) (rate(openseat_http_requests_total{status=~"5.."}[5m]))
 1. Filter logs by `event="booking_failed"`.
 2. Check database connectivity and lock wait time.
 3. Reproduce with the failing session ID from the log.
-4. If the error is a code defect, use the on-call agent or fix forward on a branch.
+4. If the error is a code defect, use the on-call worker or fix forward on a
+   branch.
 5. If the database is saturated, scale the database before changing code.
 
 ## OpenSeatWaitlistStalled
 
-**Meaning:** a session has a free seat while someone is waiting. This is a domain
-bug: promotion failed or capacity accounting is wrong.
+**Meaning:** a session has a free seat while someone is waiting. This is a
+domain bug: promotion failed or capacity accounting is wrong.
 
 1. Find the session ID from the metric label or the dashboard table.
 2. Query the roster and compare confirmed + checked-in with capacity.
@@ -83,13 +93,15 @@ bug: promotion failed or capacity accounting is wrong.
 5. Fix the promotion transaction; do not patch the count manually.
 
 This is the alert used in the on-call demonstration. The injected bug makes the
-last seat unsellable, so the gauge stays positive while a waitlist exists.
+last seat look occupied, so the gauge stays positive while a waitlist exists.
+The development rule fires after two minutes; the production rule after ten.
 
 ## OpenSeatOverbooked
 
 **Meaning:** the invariant `confirmed + checked_in <= capacity` is broken.
 
-1. Treat this as a data-integrity incident. Stop writes if the count is still growing.
+1. Treat this as a data-integrity incident. Stop writes if the count is still
+   growing.
 2. Identify the session and the bookings that exceed capacity.
 3. Preserve evidence: export the rows and the relevant traces.
 4. Roll back the release that introduced the race.
@@ -105,33 +117,63 @@ group by s.id, s.capacity
 having count(*) filter (where b.status in ('confirmed', 'checked_in')) > s.capacity;
 ```
 
-## Rollback
+## Deploy and rollback
 
-Rollback deploys a previous image tag. It does not revert migrations.
+The normal deploy is a merge to `main`. CI builds the image once, runs E2E
+against that image, and only then calls the Render deploy hook. If the hook
+secret is not configured, `autoDeployTrigger: checksPass` is the fallback and
+the workflow prints a warning.
+
+Verify a deploy:
 
 ```bash
-gh workflow run rollback.yml -f environment=prod -f tag=20261024-120000-abc1234
+make render-verify URL=https://open-seat.onrender.com
+EXPECTED_VERSION=<sha> make render-verify URL=https://open-seat.onrender.com
+```
+
+On the free plan, roll back from **Render Dashboard > Deploys > Rollback**.
+On the paid image-backed path, use the workflow:
+
+```bash
+gh workflow run rollback.yml \
+  -f deploy_id=dep-xxxxxxxxxxxx \
+  -f confirm=rollback
 ```
 
 Rules:
 
-- Migrations must be backward compatible for one release (expand, then contract).
-- Never roll back by rebuilding an old commit; promote the stored image.
+- Migrations must be backward compatible for one release (expand, then
+  contract).
+- Never roll back by rebuilding an old commit on the paid path; promote the
+  stored image.
 - After rollback, confirm `/healthz` and the booking smoke test.
 
 ## On-call agent handoff
 
-The worker posts an evidence packet to the agent: alert name, environment,
-version, dashboard link, runbook link, relevant metric queries, recent deploy,
-and sanitised log excerpts. The agent may:
+`make on-call` starts the worker. It polls Grafana every 60 seconds for active
+page-severity alerts in `ON_CALL_ENVIRONMENT`, deduplicates by fingerprint, and
+stores state outside the repository (`~/.openseat/on-call` by default).
 
-- read the repository and telemetry;
-- reproduce the bug in a test;
-- commit a fix to a new branch and open a draft PR;
-- report that it cannot reproduce the issue.
+For each new alert the worker:
 
-It may not deploy, merge, access production secrets, or write to the production
-database. A human reviews every branch.
+1. builds a redacted packet with the alert, labels, annotations, environment,
+   deployed version, dashboard and runbook URLs, current metric values, recent
+   commits, and sanitised log excerpts;
+2. creates an isolated git worktree on a new branch;
+3. starts the configured headless agent with a 20-minute timeout;
+4. records the transcript, branch, and draft PR URL;
+5. rejects the run if the agent changed `.github/`, `render.yaml`, `deploy/`,
+   `on-call/`, or `observability/`.
+
+The agent may read the repository, reproduce the bug in a test, commit a fix to
+the branch, and open a draft PR. It may not merge, deploy, access production
+secrets, or write to the production database. A human reviews every branch.
+
+Dry run without a Grafana account:
+
+```bash
+make on-call ARGS="--dry-run --alert-file /tmp/alert.json"
+```
 
 ## Incident note template
 
@@ -153,3 +195,5 @@ database. A human reviews every branch.
 - Weekly: dependency audit, failed deploy review, dashboard link check.
 - Before submission: fire each alert in dev, confirm the runbook link resolves,
   and run the demo script end to end.
+- The live Grafana notification, screenshots, demo video, and peer reviews are
+  tracked as external evidence in `_docs/evidence/README.md`.

@@ -3,15 +3,17 @@
 ## Principle
 
 Test the rules that can hurt users: capacity, ordering, promotion, permissions,
-and the check-in window. Do not chase coverage on glue code.
+and the check-in window. Test the operational surface that can hide a failure:
+telemetry correlation, alert assets, deploy tooling, and the on-call worker.
+Do not chase coverage on glue code.
 
 ## Pyramid
 
 | Level | Tool | What it covers | Speed |
 | --- | --- | --- | --- |
-| Backend unit | pytest | Pure domain rules, validation, ordering | Fast |
+| Backend unit | pytest | Pure domain rules, validation, ordering, telemetry redaction, alert assets, deploy and on-call tooling | Fast |
 | Frontend unit | Vitest + React Testing Library | Component states, error rendering, service mock | Fast |
-| Integration | pytest + httpx + Postgres | API, transactions, constraints, concurrency | Medium |
+| Integration | pytest + httpx + Postgres | API, transactions, constraints, concurrency, correlated spans | Medium |
 | E2E | Playwright | The full host/guest/waitlist/check-in journey | Slow |
 
 ## Commands
@@ -19,7 +21,8 @@ and the check-in window. Do not chase coverage on glue code.
 ```bash
 make test    # backend unit + frontend unit + integration
 make e2e     # Playwright against docker-compose.yaml
-make lint    # ruff, mypy, eslint, tsc
+make lint    # ruff (app, on-call, scripts), mypy, eslint, tsc
+make audit   # pip-audit and npm audit --omit=dev
 ```
 
 Focused runs:
@@ -27,11 +30,20 @@ Focused runs:
 ```bash
 cd backend
 uv run pytest tests/unit/test_booking_rules.py -q
-uv run pytest tests/integration/test_booking_race.py -q
+uv run pytest tests/integration/test_bookings.py -q
+uv run pytest tests/unit/test_telemetry.py -q
+uv run pytest tests/integration/test_telemetry_spans.py -q
+uv run pytest tests/unit/test_observability_assets.py -q
+uv run pytest tests/unit/test_oncall_worker.py -q
 
 cd frontend
 npm run test -- BookingButton
 ```
+
+`make e2e` accepts `E2E_BASE_URL` to run against an existing environment and
+`E2E_IMAGE` to run against a prebuilt image. CI builds the image once, saves
+it, and passes it to the E2E job through `E2E_IMAGE`, so the tested bytes are
+the deployed bytes.
 
 ## Required coverage
 
@@ -57,7 +69,48 @@ npm run test -- BookingButton
   confirmed and one waitlisted booking;
 - invariant query after the race:
   `confirmed + checked_in <= capacity`;
-- health endpoint reflects database availability.
+- health endpoint reflects database availability;
+- a booking journey produces a manual span and SQL spans in one trace, exports
+  metrics, and returns an `X-Trace-Id` header on errors.
+
+### Telemetry (unit and integration)
+
+- export is disabled when `OTEL_EXPORTER_OTLP_ENDPOINT` is empty;
+- resource attributes include service name, environment, and version;
+- JSON logs carry `timestamp`, `level`, `event`, `service`, `environment`,
+  `version`, `trace_id`, and `span_id`;
+- redaction removes emails, display names, cookies, authorization headers,
+  bearer tokens, passwords, tokens, API keys, and request bodies;
+- DB-backed gauges report the real invariant rather than an in-memory counter;
+- the in-memory span exporter and metric reader are used in tests, so no
+  Grafana account is required.
+
+### Observability assets (unit)
+
+- `observability/dashboard.json` has the required panels and the
+  `environment`/`version` variables;
+- `observability/alerts.yaml` defines the five page alerts plus the
+  development waitlist copy;
+- every alert has `owner`, `dashboard_url`, and `runbook_url`;
+- every runbook link resolves to a heading in `_docs/runbook.md`;
+- the production waitlist rule uses 10 minutes and the development copy uses
+  2 minutes.
+
+### Deploy and on-call tooling (unit)
+
+- `scripts/render.py validate` accepts the Blueprint and rejects drift;
+- `deploy-hook` refuses to run without the URL and redacts the hook in output;
+- `promote` and `rollback` require a typed confirmation;
+- the on-call worker deduplicates by fingerprint and ignores resolved alerts;
+- the evidence packet redacts emails, display names, cookies, and tokens;
+- the agent environment is an allowlist and never receives Render, database,
+  session, Grafana, or OTLP secrets;
+- state must live outside the repository;
+- a run that changes `.github/`, `render.yaml`, `deploy/`, `on-call/`, or
+  `observability/` is rejected;
+- the agent timeout terminates the process tree;
+- the chaos helper injects and reverts the off-by-one in a disposable
+  worktree.
 
 ### Frontend (unit)
 
@@ -80,7 +133,7 @@ Three browser contexts: host, guest A, guest B.
 7. A (non-host) cannot check in.
 
 Also cover: duplicate booking, booking a cancelled session, and a missing CSRF
-header. Capture a trace and screenshot on failure.
+header. Capture a trace, screenshot, and video on failure.
 
 ## Fixtures and isolation
 
@@ -92,27 +145,43 @@ header. Capture a trace and screenshot on failure.
 - Freeze time for check-in-window tests; do not depend on the wall clock.
 - The concurrency test uses two real connections and a barrier; do not simulate
   it with sequential calls.
+- Telemetry tests inject an in-memory span exporter and metric reader; they
+  never contact Grafana.
 
 ## What is intentionally not tested
 
 - Tailwind classes and visual appearance. Use screenshots for the demo.
 - Third-party libraries (Render, Grafana, Playwright).
-- Load and soak testing in v1. Add a k6 smoke test only if time remains.
+- Load and soak testing in v1.
+- A live Grafana account, a delivered notification, and a real coding-agent
+  model call. Those need external accounts and are tracked as pending evidence
+  in `_docs/evidence/README.md`.
 - Email, payments, and other out-of-scope features.
 
 ## CI
 
-- Pull request: lint, unit, frontend, integration (Postgres service container),
-  image build.
-- Main: the same, then build and push the image, run E2E against Compose, deploy
-  dev, smoke `/healthz`.
-- Failures keep logs and the Playwright trace as artifacts.
+`.github/workflows/ci.yml` runs five jobs on every push and pull request:
+
+1. **Backend** - ruff, mypy, migrations, drift check, pytest against a
+   PostgreSQL 16 service container.
+2. **Contract** - `scripts/check_contract.py`.
+3. **Frontend** - eslint, tsc, vitest, production build.
+4. **Build image** - builds the root Dockerfile once, saves it as an artifact,
+   and pushes it to GHCR only on `main`.
+5. **E2E** - loads that exact artifact and runs Playwright against it.
+
+On `main`, a **deploy** job runs only after E2E. It calls the Render deploy hook
+when `RENDER_DEPLOY_HOOK_URL` is configured and then verifies `/healthz` with
+`EXPECTED_VERSION` set to the commit SHA. Without the secret it warns and skips
+the hook; `autoDeployTrigger: checksPass` remains the fallback.
+
+Failures keep the Playwright report, trace, screenshot, and video as artifacts.
 
 ## Evidence for the rubric
 
-The README links:
-
-- the `make test` command and a successful run;
-- a CI run showing parallel backend/frontend jobs;
-- a Playwright report or trace;
-- the concurrency test by name.
+- `make test`, `make e2e`, and `make lint` results are recorded in
+  `_docs/evidence/README.md`.
+- CI shows the backend, contract, frontend, build, and E2E jobs.
+- The concurrency test is named in criterion 5 of `_docs/RUBRIC.md`.
+- Telemetry, dashboard, and on-call evidence is listed in
+  `_docs/evidence/README.md`, separated from pending external captures.
